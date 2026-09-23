@@ -1,0 +1,83 @@
+version: "1.0"
+language: python
+
+libraries:
+  - name: cryptography
+    imports:
+      - cryptography.hazmat.primitives.ciphers
+      - cryptography.hazmat.primitives.asymmetric
+      - cryptography.hazmat.primitives.hashes
+      - cryptography.hazmat.primitives.kdf
+    call_patterns:
+      - call: "Cipher"
+        default_algo_id: ALGO-AES
+        extract_args:
+          position_0: "algorithm"
+          position_1: "mode"
+        flag_insecure_modes:
+          - "ECB"
+      - call: "generate_private_key"
+        default_algo_id: ALGO-RSA
+        extract_args:
+          key_size: "key_size"
+        flag_insecure_if:
+          key_size_less_than: 2048
+
+  - name: pycryptodome
+    imports:
+      - Crypto.Cipher
+      - Cryptodome.Cipher
+      - Crypto.PublicKey
+      - Cryptodome.PublicKey
+      - Crypto.Hash
+      - Cryptodome.Hash
+    call_patterns:
+      - call: "AES.new"
+        algo_id: ALGO-AES
+        extract_args:
+          position_1: "mode"
+        flag_insecure_modes:
+          - "MODE_ECB"
+          - "AES.MODE_ECB"
+      - call: "DES.new"
+        algo_id: ALGO-DES
+        flag_insecure: true
+      - call: "DES3.new"
+        algo_id: ALGO-DES
+        flag_insecure: true
+      - call: "RSA.generate"
+        algo_id: ALGO-RSA
+        extract_args:
+          position_0: "bits"
+        flag_insecure_if:
+          key_size_less_than: 2048
+
+  - name: hashlib
+    imports:
+      - hashlib
+    call_patterns:
+      - call: "md5"
+        algo_id: ALGO-MD5
+        flag_insecure: true
+      - call: "sha1"
+        algo_id: ALGO-SHA1
+        flag_insecure: true
+      - call: "sha256"
+        algo_id: ALGO-SHA2
+      - call: "sha384"
+        algo_id: ALGO-SHA2
+      - call: "sha512"
+        algo_id: ALGO-SHA2
+
+  - name: pynacl
+    imports:
+      - nacl.public
+      - nacl.secret
+      - nacl.signing
+    call_patterns:
+      - call: "PrivateKey.generate"
+        algo_id: ALGO-ECDH
+      - call: "SigningKey.generate"
+        algo_id: ALGO-ECDSA
+      - call: "SecretBox"
+        algo_id: ALGO-CHACHA20

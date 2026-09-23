@@ -1,0 +1,42 @@
+# Global Configuration for Crypto-Recon Scanner
+
+scan_targets:
+  # Target directory for source code, binaries, and local configs
+  project_root: "."
+  # Domain names or IP addresses for remote TLS/endpoint auditing
+  domains:
+    - "example.com:443"
+  # Target AWS region(s) for KMS, ACM, and CloudHSM discovery
+  aws_regions:
+    - "us-east-1"
+  # Nginx or webserver configuration paths
+  nginx_config_paths:
+    - "/etc/nginx/nginx.conf"
+
+scanners:
+  enable_source: true
+  enable_artifacts: true
+  enable_infrastructure: true
+  enable_network: true
+
+source_scanner:
+  use_ripgrep: true
+  max_header_lines_checked: 100
+  excluded_directories:
+    - ".git"
+    - "node_modules"
+    - "vendor"
+    - "target"
+    - "dist"
+    - "build"
+    - ".venv"
+    - "venv"
+
+mosca_parameters:
+  default_data_classification: "corporate_financials"
+  crqc_scenario: "central" # options: pessimistic (2033), central (2038), optimistic (2045)
+  environment_type: "cloud_native" # options: cloud_native, hybrid, on_prem_legacy, embedded
+
+output:
+  format: "cyclonedx_1.6_json"
+  output_file: "cbom.json"
