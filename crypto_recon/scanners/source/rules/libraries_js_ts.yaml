@@ -1,0 +1,67 @@
+version: "1.0"
+language: js_ts
+
+libraries:
+  - name: node_crypto
+    imports:
+      - "crypto"
+      - "node:crypto"
+    call_patterns:
+      - call: "createCipheriv"
+        extract_args:
+          position_0: "algorithm"
+        flag_insecure_modes:
+          - "ecb"
+      - call: "createDecipheriv"
+        extract_args:
+          position_0: "algorithm"
+        flag_insecure_modes:
+          - "ecb"
+      - call: "generateKeyPair"
+        extract_args:
+          position_0: "type"
+      - call: "generateKeyPairSync"
+        extract_args:
+          position_0: "type"
+      - call: "createHash"
+        extract_args:
+          position_0: "algorithm"
+        flag_insecure_algorithms:
+          - "md5"
+          - "sha1"
+      - call: "createHmac"
+        extract_args:
+          position_0: "algorithm"
+
+  - name: web_crypto
+    imports:
+      - "window.crypto.subtle"
+      - "crypto.subtle"
+    call_patterns:
+      - call: "subtle.generateKey"
+        extract_algorithm_param: "name"
+      - call: "subtle.encrypt"
+        extract_algorithm_param: "name"
+      - call: "subtle.digest"
+        extract_algorithm_param: "name"
+
+  - name: crypto_js
+    imports:
+      - "crypto-js"
+    call_patterns:
+      - call: "AES.encrypt"
+        algo_id: ALGO-AES
+      - call: "DES.encrypt"
+        algo_id: ALGO-DES
+        flag_insecure: true
+      - call: "TripleDES.encrypt"
+        algo_id: ALGO-DES
+        flag_insecure: true
+      - call: "MD5"
+        algo_id: ALGO-MD5
+        flag_insecure: true
+      - call: "SHA1"
+        algo_id: ALGO-SHA1
+        flag_insecure: true
+      - call: "SHA256"
+        algo_id: ALGO-SHA2

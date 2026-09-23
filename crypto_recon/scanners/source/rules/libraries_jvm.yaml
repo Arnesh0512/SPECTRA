@@ -1,0 +1,58 @@
+version: "1.0"
+language: jvm
+
+libraries:
+  - name: java_security_jca
+    imports:
+      - javax.crypto.Cipher
+      - javax.crypto.KeyGenerator
+      - java.security.KeyPairGenerator
+      - java.security.MessageDigest
+      - java.security.Signature
+    call_patterns:
+      - class: "Cipher"
+        method: "getInstance"
+        extract_transformation:
+          position_0: "transformation"
+        flag_insecure_modes:
+          - "ECB"
+          - "NONE"
+
+      - class: "KeyGenerator"
+        method: "getInstance"
+        extract_algorithm:
+          position_0: "algorithm"
+
+      - class: "KeyPairGenerator"
+        method: "getInstance"
+        extract_algorithm:
+          position_0: "algorithm"
+
+      - class: "MessageDigest"
+        method: "getInstance"
+        extract_algorithm:
+          position_0: "algorithm"
+        flag_insecure_algorithms:
+          - "MD5"
+          - "SHA-1"
+          - "SHA1"
+
+      - class: "Signature"
+        method: "getInstance"
+        extract_algorithm:
+          position_0: "algorithm"
+
+  - name: bouncy_castle
+    imports:
+      - org.bouncycastle.crypto
+      - org.bouncycastle.jce.provider.BouncyCastleProvider
+      - org.bouncycastle.pqc.crypto
+    call_patterns:
+      - class: "BouncyCastleProvider"
+        method: "PROVIDER_NAME"
+      - class: "KyberKeyPairGenerator"
+        algo_id: ALGO-ML-KEM
+      - class: "DilithiumKeyPairGenerator"
+        algo_id: ALGO-ML-DSA
+      - class: "SPHINCSPlusKeyPairGenerator"
+        algo_id: ALGO-SLH-DSA

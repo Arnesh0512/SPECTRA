@@ -1,0 +1,107 @@
+{
+  "policy_metadata": {
+    "version": "1.0.0",
+    "name": "Enterprise Post-Quantum Cryptography & CBOM Policy",
+    "last_updated": "2026-01-15"
+  },
+  "crqc_arrival_scenarios": {
+    "pessimistic": 2033,
+    "central": 2038,
+    "optimistic": 2045
+  },
+  "default_shelf_life_x": {
+    "ephemeral_session": {
+      "years": 0.01,
+      "description": "Session tokens, OTPs, ephemeral TLS handshake state"
+    },
+    "payment_card_data": {
+      "years": 3.0,
+      "description": "PCI-DSS cardholder dispute and authorization data"
+    },
+    "corporate_financials": {
+      "years": 7.0,
+      "description": "Statutory audit trails, corporate tax filings, and general ledger"
+    },
+    "proprietary_ip": {
+      "years": 15.0,
+      "description": "Trade secrets, patents, software source code, architectural blueprints"
+    },
+    "healthcare_phi": {
+      "years": 25.0,
+      "description": "Pediatric health records, clinical trials, HIPAA-protected records"
+    },
+    "biometrics_and_genomics": {
+      "years": 75.0,
+      "description": "Human genome sequences, biometric identity templates (non-revocable)"
+    }
+  },
+  "asset_classification_overrides": {
+    "auth_tokens_redis": "ephemeral_session",
+    "billing_ledger_postgres": "corporate_financials",
+    "pacs_imaging_s3": "healthcare_phi",
+    "biometric_auth_service": "biometrics_and_genomics"
+  },
+  "algorithm_risk_definitions": {
+    "RSA": {
+      "quantum_safe": false,
+      "shor_vulnerable": true,
+      "replacement": "ML-KEM-768 / ML-DSA-65",
+      "severity": "CRITICAL"
+    },
+    "ECDSA": {
+      "quantum_safe": false,
+      "shor_vulnerable": true,
+      "replacement": "ML-DSA-65 (FIPS 204)",
+      "severity": "CRITICAL"
+    },
+    "ECDH": {
+      "quantum_safe": false,
+      "shor_vulnerable": true,
+      "replacement": "ML-KEM-768 (FIPS 203)",
+      "severity": "CRITICAL"
+    },
+    "DSA": {
+      "quantum_safe": false,
+      "shor_vulnerable": true,
+      "replacement": "ML-DSA-65 (FIPS 204)",
+      "severity": "CRITICAL"
+    },
+    "AES-128": {
+      "quantum_safe": false,
+      "shor_vulnerable": false,
+      "grover_vulnerable": true,
+      "replacement": "AES-256-GCM",
+      "severity": "MEDIUM"
+    },
+    "AES-256": {
+      "quantum_safe": true,
+      "shor_vulnerable": false,
+      "grover_vulnerable": false,
+      "replacement": null,
+      "severity": "LOW"
+    },
+    "SHA-256": {
+      "quantum_safe": true,
+      "shor_vulnerable": false,
+      "grover_vulnerable": false,
+      "replacement": null,
+      "severity": "LOW"
+    },
+    "MD5": {
+      "quantum_safe": false,
+      "shor_vulnerable": false,
+      "grover_vulnerable": false,
+      "replacement": "SHA-256 / SHA-3",
+      "severity": "HIGH",
+      "classical_broken": true
+    },
+    "SHA-1": {
+      "quantum_safe": false,
+      "shor_vulnerable": false,
+      "grover_vulnerable": false,
+      "replacement": "SHA-256 / SHA-3",
+      "severity": "HIGH",
+      "classical_broken": true
+    }
+  }
+}

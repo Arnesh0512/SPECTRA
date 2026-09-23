@@ -1,0 +1,60 @@
+crypto-recon/
+├── crypto_recon/
+│   ├── engine/
+│   │   ├── __init__.py
+│   │   ├── cbom_builder.py
+│   │   ├── correlator.py
+│   │   ├── mosca.py
+│   │   └── normalizer.py
+│   ├── scanners/
+│   │   ├── artifacts/
+│   │   │   ├── __init__.py
+│   │   │   ├── binary_scanner.py
+│   │   │   ├── cert_scanner.py
+│   │   │   └── container_scanner.py
+│   │   ├── infrastructure/
+│   │   │   ├── __init__.py
+│   │   │   ├── aws_scanner.py
+│   │   │   ├── hardware_scanner.py
+│   │   │   ├── iac_scanner.py
+│   │   │   └── terraform_scanner.py
+│   │   ├── network/
+│   │   │   ├── __init__.py
+│   │   │   ├── endpoint_scanner.py
+│   │   │   ├── nginx_scanner.py
+│   │   │   └── protocol_scanner.py
+│   │   ├── source/
+│   │   │   ├── rules/
+│   │   │   │   ├── algorithms.yaml
+│   │   │   │   ├── libraries_compiled.yaml
+│   │   │   │   ├── libraries_js_ts.yaml
+│   │   │   │   ├── libraries_jvm.yaml
+│   │   │   │   └── libraries_python.yaml
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py
+│   │   │   ├── compiled_src.py
+│   │   │   ├── js_ts_scanner.py
+│   │   │   ├── jvm_scanner.py
+│   │   │   ├── python_scanner.py
+│   │   │   └── rules.py
+│   │   └── __init__.py
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   ├── logger.py
+│   │   └── shell.py
+│   ├── __init__.py
+│   ├── cli.py
+│   └── config.py
+├── tests/
+│   ├── fixtures/
+│   ├── __init__.py
+│   ├── test_cbom_builder.py
+│   └── test_mosca.py
+├── .gitignore
+├── cbom_policy.json
+├── config.example.yaml
+├── Dockerfile
+├── installed.txt
+├── pyproject.toml
+├── README.md
+└── requirements.txt
