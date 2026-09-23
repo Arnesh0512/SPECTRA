@@ -35,7 +35,7 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY cbom_policy.json .
 COPY config.example.yaml .
-COPY crypto_recon/ ./crypto_recon/
+COPY spectra/ ./spectra/
 
 # Install crypto-recon as a package
 RUN pip install --no-cache-dir -e .
