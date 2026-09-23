@@ -1,5 +1,5 @@
 crypto-recon/
-├── crypto_recon/
+├── spectra/
 │   ├── engine/
 │   │   ├── __init__.py
 │   │   ├── cbom_builder.py

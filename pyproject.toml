@@ -56,14 +56,14 @@ dev = [
 ]
 
 [project.scripts]
-crypto-recon = "crypto_recon.cli:main"
+crypto-recon = "spectra.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["crypto_recon*"]
+include = ["spectra*"]
 
 [tool.setuptools.package-data]
-crypto_recon = [
+spectra = [
     "scanners/source/rules/*.yaml",
 ]
 
