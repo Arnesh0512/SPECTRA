@@ -81,18 +81,10 @@ class AssetNormalizer:
         mode = finding.get("mode")
         padding = finding.get("padding")
         key_size = finding.get("key_size")
-        curve = finding.get("curve")           # <--- ADD
 
-        # Reflect curve or mode in the asset name if present
-        if curve:
-            name = f"{algo}-{curve}"
-        elif mode:
-            name = f"{algo}-{mode}"
-        else:
-            name = algo
-
+        name = f"{algo}-{mode}" if mode else algo
         location = f"{file_path}:{line}"
-        asset_id = self._generate_id("src", location, f"{algo}:{curve or ''}")
+        asset_id = self._generate_id("src", location, algo)
 
         return NormalizedCryptoAsset(
             asset_id=asset_id,
@@ -105,7 +97,6 @@ class AssetNormalizer:
             key_size=key_size,
             mode=mode,
             padding=padding,
-            curve=curve,                       # <--- ADD
             quantum_safe=finding.get("quantum_safe", False),
             shor_vulnerable=not finding.get("quantum_safe", False),
             nist_status=finding.get("nist_status", "unknown"),

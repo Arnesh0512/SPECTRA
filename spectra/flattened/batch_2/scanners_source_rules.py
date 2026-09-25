@@ -28,6 +28,7 @@ class AlgorithmRule:
             re.compile(p, re.IGNORECASE) for p in self.patterns
         ]
 
+
 @dataclass
 class LibraryCallPattern:
     call: Optional[str] = None
@@ -35,15 +36,9 @@ class LibraryCallPattern:
     method: Optional[str] = None
     algo_id: Optional[str] = None
     default_algo_id: Optional[str] = None
-    primitive: Optional[str] = None                      
-    operation: Optional[str] = None                      # (captures sign, verify, encrypt, etc.)
-    issue: Optional[str] = None
     flag_insecure: bool = False
     flag_insecure_modes: List[str] = field(default_factory=list)
     flag_insecure_algorithms: List[str] = field(default_factory=list)
-    flag_insecure_curves: List[str] = field(default_factory=list)
-    flag_insecure_if_digest: List[str] = field(default_factory=list)
-    curve_mappings: Dict[str, str] = field(default_factory=dict)
     extract_args: Dict[str, str] = field(default_factory=dict)
     extract_transformation: Dict[str, str] = field(default_factory=dict)
     extract_algorithm: Dict[str, str] = field(default_factory=dict)
@@ -104,15 +99,9 @@ class RuleEngine:
                             method=cp.get("method"),
                             algo_id=cp.get("algo_id"),
                             default_algo_id=cp.get("default_algo_id"),
-                            primitive=cp.get("primitive"),
-                            operation=cp.get("operation"),
-                            issue=cp.get("issue"),
                             flag_insecure=cp.get("flag_insecure", False),
                             flag_insecure_modes=cp.get("flag_insecure_modes", []),
                             flag_insecure_algorithms=cp.get("flag_insecure_algorithms", []),
-                            flag_insecure_curves=cp.get("flag_insecure_curves", []),
-                            flag_insecure_if_digest=cp.get("flag_insecure_if_digest", []),
-                            curve_mappings=cp.get("curve_mappings", {}),
                             extract_args=cp.get("extract_args", {}),
                             extract_transformation=cp.get("extract_transformation", {}),
                             extract_algorithm=cp.get("extract_algorithm", {}),
