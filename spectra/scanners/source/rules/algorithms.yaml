@@ -4,7 +4,7 @@ algorithms:
   - id: ALGO-AES
     name: AES
     primitive: symmetric_cipher
-    quantum_safe: false # AES-128 is Grover vulnerable; AES-256 is quantum-safe
+    quantum_safe: false
     nist_status: approved
     patterns:
       - '(?i)\bAES[-_]?(128|192|256)?[-_]?(GCM|CBC|CTR|ECB|CFB|OFB)?\b'
@@ -17,7 +17,37 @@ algorithms:
     quantum_safe: false
     nist_status: deprecated_classical
     patterns:
-      - '(?i)\b(DES|3DES|DESede)\b'
+      - '(?i)\b(DES|DESede)\b'
+    weak_modes:
+      - ALL
+
+  - id: ALGO-3DES
+    name: 3DES
+    primitive: symmetric_cipher
+    quantum_safe: false
+    nist_status: deprecated_classical
+    patterns:
+      - '(?i)\b(3DES|DES3|TripleDES)\b'
+    weak_modes:
+      - ALL
+
+  - id: ALGO-RC4
+    name: RC4
+    primitive: symmetric_cipher
+    quantum_safe: false
+    nist_status: broken_classical
+    patterns:
+      - '(?i)\b(RC4|ARC4)\b'
+    weak_modes:
+      - ALL
+
+  - id: ALGO-BLOWFISH
+    name: Blowfish
+    primitive: symmetric_cipher
+    quantum_safe: false
+    nist_status: deprecated_classical
+    patterns:
+      - '(?i)\bBlowfish\b'
     weak_modes:
       - ALL
 
@@ -27,10 +57,37 @@ algorithms:
     quantum_safe: true
     nist_status: approved
     patterns:
-      - '(?i)\bChaCha20(-Poly1305)?\b'
+      - '(?i)\bChaCha20\b'
     weak_modes: []
 
-  # --- Asymmetric / Public Key (Shor-Vulnerable) ---
+  - id: ALGO-CHACHA20-POLY1305
+    name: ChaCha20-Poly1305
+    primitive: symmetric_cipher
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bChaCha20[-_]?Poly1305\b'
+    weak_modes: []
+
+  - id: ALGO-XSALSA20-POLY1305
+    name: XSalsa20-Poly1305
+    primitive: symmetric_cipher
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bXSalsa20\b'
+    weak_modes: []
+
+  - id: ALGO-X25519-XSALSA20-POLY1305
+    name: X25519-XSalsa20-Poly1305
+    primitive: key_exchange
+    quantum_safe: false
+    nist_status: deprecated_pqc
+    patterns:
+      - '(?i)\bX25519\b'
+    weak_modes: []
+
+  # --- Asymmetric / Public Key & Curves ---
   - id: ALGO-RSA
     name: RSA
     primitive: public_key
@@ -38,6 +95,15 @@ algorithms:
     nist_status: deprecated_pqc
     patterns:
       - '(?i)\bRSA[-_]?(1024|2048|3072|4096)?\b'
+    weak_modes: []
+
+  - id: ALGO-ECC
+    name: ECC
+    primitive: public_key
+    quantum_safe: false
+    nist_status: deprecated_pqc
+    patterns:
+      - '(?i)\b(ECC|ECDSA|ECDH)\b'
     weak_modes: []
 
   - id: ALGO-ECDSA
@@ -56,7 +122,43 @@ algorithms:
     quantum_safe: false
     nist_status: deprecated_pqc
     patterns:
-      - '(?i)\b(ECDH|ECDHE|X25519|X448)\b'
+      - '(?i)\b(ECDH|ECDHE)\b'
+    weak_modes: []
+
+  - id: ALGO-ED25519
+    name: Ed25519
+    primitive: signature
+    quantum_safe: false
+    nist_status: deprecated_pqc
+    patterns:
+      - '(?i)\bEd25519\b'
+    weak_modes: []
+
+  - id: ALGO-X25519
+    name: X25519
+    primitive: key_exchange
+    quantum_safe: false
+    nist_status: deprecated_pqc
+    patterns:
+      - '(?i)\bX25519\b'
+    weak_modes: []
+
+  - id: ALGO-ED448
+    name: Ed448
+    primitive: signature
+    quantum_safe: false
+    nist_status: deprecated_pqc
+    patterns:
+      - '(?i)\bEd448\b'
+    weak_modes: []
+
+  - id: ALGO-X448
+    name: X448
+    primitive: key_exchange
+    quantum_safe: false
+    nist_status: deprecated_pqc
+    patterns:
+      - '(?i)\bX448\b'
     weak_modes: []
 
   - id: ALGO-DSA
@@ -68,7 +170,7 @@ algorithms:
       - '(?i)\bDSA[-_]?(1024|2048)?\b'
     weak_modes: []
 
-  # --- Post-Quantum Cryptography (FIPS 203, 204, 205) ---
+  # --- Post-Quantum Cryptography ---
   - id: ALGO-ML-KEM
     name: ML-KEM
     primitive: key_encapsulation
@@ -106,13 +208,85 @@ algorithms:
       - '(?i)\bSHA[-_]?(224|256|384|512)\b'
     weak_modes: []
 
+  - id: ALGO-SHA2-224
+    name: SHA-224
+    primitive: hash
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bSHA[-_]?224\b'
+    weak_modes: []
+
+  - id: ALGO-SHA2-256
+    name: SHA-256
+    primitive: hash
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bSHA[-_]?256\b'
+    weak_modes: []
+
+  - id: ALGO-SHA2-384
+    name: SHA-384
+    primitive: hash
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bSHA[-_]?384\b'
+    weak_modes: []
+
+  - id: ALGO-SHA2-512
+    name: SHA-512
+    primitive: hash
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bSHA[-_]?512\b'
+    weak_modes: []
+
   - id: ALGO-SHA3
     name: SHA-3
     primitive: hash
     quantum_safe: true
     nist_status: approved
     patterns:
-      - '(?i)\bSHA3[-_]?(224|256|384|512)\b'
+      - '(?i)\bSHA3\b'
+    weak_modes: []
+
+  - id: ALGO-SHA3-256
+    name: SHA3-256
+    primitive: hash
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bSHA3[-_]?256\b'
+    weak_modes: []
+
+  - id: ALGO-SHA3-512
+    name: SHA3-512
+    primitive: hash
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bSHA3[-_]?512\b'
+    weak_modes: []
+
+  - id: ALGO-BLAKE2B
+    name: BLAKE2b
+    primitive: hash
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bBLAKE2b\b'
+    weak_modes: []
+
+  - id: ALGO-BLAKE2S
+    name: BLAKE2s
+    primitive: hash
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bBLAKE2s\b'
     weak_modes: []
 
   - id: ALGO-MD5
@@ -134,3 +308,37 @@ algorithms:
       - '(?i)\bSHA[-_]?1\b'
     weak_modes:
       - ALL
+
+  - id: ALGO-HMAC
+    name: HMAC
+    primitive: mac
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bHMAC\b'
+    weak_modes: []
+
+  # --- General Loaders & System Crypto ---
+  - id: ALGO-ASYMMETRIC-KEY
+    name: AsymmetricKey
+    primitive: key_management
+    quantum_safe: false
+    nist_status: approved
+    patterns: []
+    weak_modes: []
+
+  - id: ALGO-X509
+    name: X.509
+    primitive: certificate
+    quantum_safe: false
+    nist_status: approved
+    patterns: []
+    weak_modes: []
+
+  - id: ALGO-CSPRNG
+    name: CSPRNG
+    primitive: prng
+    quantum_safe: true
+    nist_status: approved
+    patterns: []
+    weak_modes: []

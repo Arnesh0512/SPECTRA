@@ -26,8 +26,6 @@ class SourceFinding:
     key_size: Optional[int] = None
     mode: Optional[str] = None
     padding: Optional[str] = None
-    curve: Optional[str] = None
-    operation: Optional[str] = None
     quantum_safe: bool = False
     nist_status: str = "unknown"
     security_findings: List[Dict[str, str]] = field(default_factory=list)
@@ -47,8 +45,6 @@ class SourceFinding:
             "key_size": self.key_size,
             "mode": self.mode,
             "padding": self.padding,
-            "curve": self.curve,
-            "operation": self.operation,
             "quantum_safe": self.quantum_safe,
             "nist_status": self.nist_status,
             "security_findings": self.security_findings,

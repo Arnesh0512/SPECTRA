@@ -77,10 +77,3 @@ def log_warning(message: str) -> None:
 def log_error(message: str) -> None:
     """Prints an error message."""
     console.print(f"  [bold red]✖[/bold red] {message}")
-
-
-def log_header(title: str) -> None:
-    """Prints a distinct header section banner."""
-    console.print(f"\n[bold bright_cyan]{'=' * 60}[/bold bright_cyan]")
-    console.print(f"[bold bright_white]  {title.upper()}[/bold bright_white]")
-    console.print(f"[bold bright_cyan]{'=' * 60}[/bold bright_cyan]")
