@@ -1,6 +1,6 @@
 version: "2.0"
 language: jvm
-description: "Unified JCA/JCE and Bouncy Castle ruleset capturing factory getInstance, EC parameter specs, KeyStores, and CodeQL isCryptoType operations."
+description: "Unified JVM ruleset covering JCA/JCE, Bouncy Castle, Google Tink, Ktor TLS, Apache Commons Crypto, and Conscrypt."
 
 libraries:
   # =========================================================================
@@ -13,6 +13,8 @@ libraries:
       - javax.crypto.Mac
       - javax.crypto.SecretKeyFactory
       - javax.crypto.KeyAgreement
+      - javax.crypto.spec.SecretKeySpec
+      - javax.crypto.spec.IvParameterSpec
       - java.security.KeyPairGenerator
       - java.security.MessageDigest
       - java.security.Signature
@@ -21,6 +23,8 @@ libraries:
       - java.security.cert.CertificateFactory
       - java.security.spec.ECGenParameterSpec
       - javax.net.ssl.SSLContext
+      - javax.net.ssl.TrustManagerFactory
+      - javax.net.ssl.KeyManagerFactory
     call_patterns:
       # --- Cipher Transformations & Invocations ---
       - class: "Cipher"
@@ -75,6 +79,17 @@ libraries:
           - "secp192r1"
           - "secp192k1"
           - "secp160r1"
+
+      # --- Key & IV Parameter Specs (from java.json & kotlin.json) ---
+      - class: "SecretKeySpec"
+        method: "<init>"
+        operation: "key_specification"
+        extract_args:
+          position_1: "algorithm"
+
+      - class: "IvParameterSpec"
+        method: "<init>"
+        operation: "iv_specification"
 
       # --- Symmetric Key Generators ---
       - class: "KeyGenerator"
@@ -170,7 +185,7 @@ libraries:
         method: "generateCertificate"
         operation: "certificate_load"
 
-      # --- TLS Handshakes & SSLContext ---
+      # --- TLS Handshakes, SSLContext & Trust/Key Managers ---
       - class: "SSLContext"
         method: "getInstance"
         operation: "tls_session_init"
@@ -183,6 +198,14 @@ libraries:
           - "TLS"
           - "TLSv1"
           - "TLSv1.1"
+
+      - class: "TrustManagerFactory"
+        method: "getInstance"
+        operation: "trust_manager_init"
+
+      - class: "KeyManagerFactory"
+        method: "getInstance"
+        operation: "key_manager_init"
 
       # --- PRNG (SecureRandom vs Random) ---
       - class: "SecureRandom"
@@ -198,7 +221,34 @@ libraries:
           position_0: "algorithm"
 
   # =========================================================================
-  # 2. BOUNCY CASTLE (Classical, ASN.1 & Post-Quantum Cryptography)
+  # 2. GOOGLE TINK & KTOR TLS (from kotlin.json & java.json)
+  # =========================================================================
+  - name: google_tink
+    imports:
+      - com.google.crypto.tink.Aead
+      - com.google.crypto.tink.KeysetHandle
+      - com.google.crypto.tink.aead.AeadConfig
+      - com.google.crypto.tink.subtle.AesGcmJce
+    call_patterns:
+      - class: "KeysetHandle"
+        method: "generateNew"
+        operation: "keypair_generation"
+      - class: "Aead"
+        method: "encrypt"
+        operation: "aead_encryption"
+      - class: "Aead"
+        method: "decrypt"
+        operation: "aead_decryption"
+
+  - name: ktor_tls
+    imports:
+      - io.ktor.network.tls
+    call_patterns:
+      - class: "TLSConfigBuilder"
+        operation: "tls_configuration"
+
+  # =========================================================================
+  # 3. BOUNCY CASTLE (Classical, ASN.1 & Post-Quantum Cryptography)
   # =========================================================================
   - name: bouncy_castle
     imports:

@@ -1,6 +1,6 @@
 version: "2.0"
 language: js_ts
-description: "Unified JavaScript and TypeScript ruleset covering Node.js crypto, WebCrypto subtle, CryptoJS, node-forge, noble-curves, tweetnacl, and CodeQL ECDAT Layer 3 API patterns."
+description: "Unified JavaScript and TypeScript ruleset covering Node.js crypto, WebCrypto, CryptoJS, node-forge, noble-curves, tweetnacl, jsonwebtoken, jose, bcrypt, and argon2."
 
 libraries:
   # =========================================================================
@@ -143,12 +143,76 @@ libraries:
         primitive: "prng"
 
   # =========================================================================
-  # 2. BROWSER & RUNTIME WEBCRYPTO (crypto.subtle)
+  # 2. JWT & JOSE (from javascript.json, typescript.json)
+  # =========================================================================
+  - name: jwt_and_jose
+    imports:
+      - "jsonwebtoken"
+      - "jose"
+    call_patterns:
+      - call: "jwt.sign"
+        algo_id: ALGO-JWT
+        primitive: "signature"
+        operation: "token_generation"
+
+      - call: "jwt.verify"
+        algo_id: ALGO-JWT
+        primitive: "signature"
+        operation: "token_verification"
+
+      - call: "SignJWT"
+        algo_id: ALGO-JWT
+        primitive: "signature"
+        operation: "token_generation"
+
+      - call: "jwtVerify"
+        algo_id: ALGO-JWT
+        primitive: "signature"
+        operation: "token_verification"
+
+  # =========================================================================
+  # 3. PASSWORD HASHING & KDF (bcrypt, argon2, panva/hkdf)
+  # =========================================================================
+  - name: kdf_and_password_hashes
+    imports:
+      - "bcrypt"
+      - "argon2"
+      - "@panva/hkdf"
+    call_patterns:
+      - call: "bcrypt.hash"
+        algo_id: ALGO-BCRYPT
+        primitive: "key_derivation"
+        operation: "password_hash"
+
+      - call: "bcrypt.compare"
+        algo_id: ALGO-BCRYPT
+        primitive: "key_derivation"
+        operation: "password_verify"
+
+      - call: "argon2.hash"
+        algo_id: ALGO-ARGON2
+        primitive: "key_derivation"
+        operation: "password_hash"
+
+      - call: "argon2.verify"
+        algo_id: ALGO-ARGON2
+        primitive: "key_derivation"
+        operation: "password_verify"
+
+      - call: "hkdf"
+        algo_id: ALGO-HKDF
+        primitive: "key_derivation"
+        operation: "key_derivation"
+
+  # =========================================================================
+  # 4. BROWSER & RUNTIME WEBCRYPTO (crypto.subtle, SubtleCrypto)
   # =========================================================================
   - name: web_crypto
     imports:
       - "crypto.subtle"
       - "window.crypto.subtle"
+      - "window.crypto"
+      - "SubtleCrypto"
     call_patterns:
       - call: "subtle.generateKey"
         operation: "key_generation"
@@ -187,7 +251,7 @@ libraries:
         primitive: "prng"
 
   # =========================================================================
-  # 3. CRYPTO-JS
+  # 5. CRYPTO-JS
   # =========================================================================
   - name: crypto_js
     imports:
@@ -262,7 +326,7 @@ libraries:
         primitive: "mac"
 
   # =========================================================================
-  # 4. NODE-FORGE & MODERN ECC (@noble/curves, tweetnacl)
+  # 6. NODE-FORGE & MODERN ECC (@noble/curves, tweetnacl, elliptic)
   # =========================================================================
   - name: node_forge
     imports:
@@ -298,6 +362,8 @@ libraries:
       - "@noble/curves"
       - "@noble/hashes"
       - "tweetnacl"
+      - "libsodium-wrappers"
+      - "elliptic"
     call_patterns:
       - call: "secp256k1.getPublicKey"
         algo_id: ALGO-ECDSA
@@ -327,3 +393,8 @@ libraries:
       - call: "nacl.secretbox"
         algo_id: ALGO-XSALSA20-POLY1305
         primitive: "symmetric_cipher"
+
+      - call: "ec.genKeyPair"
+        algo_id: ALGO-ECC
+        primitive: "public_key"
+        operation: "keypair_generation"

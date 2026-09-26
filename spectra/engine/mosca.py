@@ -57,6 +57,10 @@ PQC_MAPPING = {
     "ECDHE": "X25519MLKEM768 (Hybrid Post-Quantum)",
     "DSA": "ML-DSA-65 (FIPS 204)",
     "ED25519": "ML-DSA-65 (FIPS 204) or SLH-DSA-128s (FIPS 205)",
+    "X25519": "ML-KEM-768 (FIPS 203) or X25519MLKEM768",
+    "ED448": "ML-DSA-87 (FIPS 204)",
+    "X448": "ML-KEM-1024 (FIPS 203)",
+    "DH": "ML-KEM-768 (FIPS 203)",
     "AES-128": "AES-256 (Grover quantum search resistance)",
     "AES-192": "AES-256",
 }
@@ -99,12 +103,26 @@ class MoscaRiskEngine:
 
         # Classical asymmetric primitives are vulnerable to Shor's algorithm
         breached = (x + y) > z
-        sndl = asset.primitive in [
+        
+        # SNDL (Store Now, Decrypt Later) applies to key exchange, key encapsulation, public-key encryption, and transport confidentiality
+        sndl_primitives = {
+            "key_exchange",
+            "key_agreement",
+            "key_encapsulation",
             "public_key_encryption",
             "key_exchange_and_transport",
             "key_management",
-            "asymmetric_encryption"
-        ]
+            "asymmetric_encryption",
+            "secure_transport"
+        }
+        
+        algo_upper = asset.algorithm.upper()
+        sndl_algo_indicators = {"ECDH", "DH", "DIFFIE", "X25519", "X448", "KEM", "KYBER"}
+        
+        sndl = (
+            asset.primitive.lower() in sndl_primitives
+            or any(ind in algo_upper for ind in sndl_algo_indicators)
+        )
 
         if breached and sndl:
             risk = "CRITICAL"
@@ -129,7 +147,7 @@ class MoscaRiskEngine:
         # Determine replacement algorithm
         replacement = "ML-KEM-768 / ML-DSA-65"
         for k, v in PQC_MAPPING.items():
-            if k in asset.algorithm.upper():
+            if k in algo_upper:
                 replacement = v
                 break
 

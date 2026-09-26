@@ -28,6 +28,7 @@ class AlgorithmRule:
             re.compile(p, re.IGNORECASE) for p in self.patterns
         ]
 
+
 @dataclass
 class LibraryCallPattern:
     call: Optional[str] = None
@@ -37,6 +38,8 @@ class LibraryCallPattern:
     default_algo_id: Optional[str] = None
     primitive: Optional[str] = None                      
     operation: Optional[str] = None                      # (captures sign, verify, encrypt, etc.)
+    mode: Optional[str] = None                           # Block cipher mode (e.g. GCM, CBC, ECB)
+    curve: Optional[str] = None                          # Elliptic curve (e.g. Ed25519, NIST-P256)
     issue: Optional[str] = None
     flag_insecure: bool = False
     flag_insecure_modes: List[str] = field(default_factory=list)
@@ -106,6 +109,8 @@ class RuleEngine:
                             default_algo_id=cp.get("default_algo_id"),
                             primitive=cp.get("primitive"),
                             operation=cp.get("operation"),
+                            mode=cp.get("mode"),
+                            curve=cp.get("curve"),
                             issue=cp.get("issue"),
                             flag_insecure=cp.get("flag_insecure", False),
                             flag_insecure_modes=cp.get("flag_insecure_modes", []),
@@ -139,7 +144,7 @@ class RuleEngine:
         return None
 
     def get_library_rules_for_language(self, language: str) -> List[LibraryRule]:
-        """Returns loaded rules for a given language domain (python, jvm, js_ts, compiled)."""
+        """Returns loaded rules for a given language domain (python, jvm, js_ts, cpp, go, rust)."""
         return self.libraries_by_language.get(language, [])
 
 

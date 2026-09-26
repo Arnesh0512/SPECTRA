@@ -82,6 +82,15 @@ PRNG_REGEX = re.compile(
     re.IGNORECASE
 )
 
+# 12. mbedTLS, wolfSSL, Botan, Crypto++ calls from ecosystem catalogs
+EXT_CPP_CRYPTO_REGEX = re.compile(
+    r'\b(?P<call>mbedtls_aes_[a-z0-9_]+|mbedtls_sha\d+|mbedtls_ssl_[a-z0-9_]+|'
+    r'wolfSSL_[a-zA-Z0-9_]+|wc_AesGcm[a-zA-Z0-9_]*|'
+    r'Botan::(?:Cipher_Mode::create|AutoSeeded_RNG)|'
+    r'CryptoPP::(?:AES::Encryption|RSA::PrivateKey))\b',
+    re.IGNORECASE
+)
+
 
 class CPPScanner(BaseSourceScanner):
     """Scanner for C and C++ source files (.c, .cpp, .cc, .cxx, .h, .hpp)."""
@@ -357,6 +366,64 @@ class CPPScanner(BaseSourceScanner):
                         raw_metadata={"function": func_name}
                     )
                 )
+
+        # 12. Extended C/C++ Ecosystem Libraries (mbedtls, wolfssl, botan, cryptopp)
+        for match in EXT_CPP_CRYPTO_REGEX.finditer(content):
+            call_name = match.group("call")
+            line_idx = self._offset_to_line(content, match.start())
+            col = match.start()
+            snippet = self.extract_snippet(file_path, line_idx)
+
+            sec_findings = []
+            algo = "SystemCrypto"
+            prim = "cryptographic_operation"
+            op = "library_call"
+
+            if "mbedtls_aes" in call_name.lower():
+                algo = "AES"
+                prim = "symmetric_cipher"
+                op = "symmetric_cipher_init"
+                if "ecb" in call_name.lower():
+                    sec_findings.append({
+                        "issue": f"Insecure ECB cipher mode invoked: {call_name}",
+                        "severity": "CRITICAL"
+                    })
+            elif "mbedtls_sha256" in call_name.lower():
+                algo = "SHA-256"
+                prim = "hash"
+                op = "digest_computation"
+            elif "mbedtls_ssl" in call_name.lower() or "wolfssl" in call_name.lower():
+                algo = "TLS"
+                prim = "secure_transport"
+                op = "tls_session_init"
+            elif "wc_aesgcm" in call_name.lower() or "cryptopp::aes" in call_name.lower():
+                algo = "AES"
+                prim = "symmetric_cipher"
+                op = "aead_encryption"
+            elif "cryptopp::rsa" in call_name.lower():
+                algo = "RSA"
+                prim = "public_key"
+                op = "keypair_generation"
+            elif "botan::autoseeded_rng" in call_name.lower():
+                algo = "CSPRNG"
+                prim = "prng"
+                op = "secure_random"
+
+            findings.append(SourceFinding(
+                source_domain="source_code",
+                language="cpp",
+                file_path=str(file_path.resolve()),
+                line_number=line_idx,
+                column_number=col,
+                code_snippet=snippet,
+                primitive=prim,
+                algorithm=algo,
+                operation=op,
+                quantum_safe=(algo in ["SHA-256", "CSPRNG"]),
+                nist_status="approved" if not sec_findings else "broken_classical",
+                security_findings=sec_findings,
+                raw_metadata={"c_call": call_name}
+            ))
 
         return findings
 

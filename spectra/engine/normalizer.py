@@ -77,13 +77,37 @@ class AssetNormalizer:
         file_path = finding.get("file_path", "")
         line = finding.get("line_number", 0)
         algo = finding.get("algorithm", "unknown").upper()
-        primitive = finding.get("primitive", "symmetric_cipher")
+        primitive = finding.get("primitive", "symmetric_cipher").lower()
         mode = finding.get("mode")
         padding = finding.get("padding")
         key_size = finding.get("key_size")
-        curve = finding.get("curve")           # <--- ADD
+        curve = finding.get("curve")
+        quantum_safe = finding.get("quantum_safe", False)
 
-        # Reflect curve or mode in the asset name if present
+        # 1. Derive CycloneDX 1.6 Asset Type
+        if primitive in ["certificate", "x509"]:
+            asset_type = "certificate"
+        elif primitive in ["secure_transport", "protocol"]:
+            asset_type = "protocol"
+        elif primitive in ["key_management", "asymmetric_key", "key_derivation"]:
+            asset_type = "key"
+        else:
+            asset_type = "algorithm"
+
+        # 2. Derive Shor's Algorithm Vulnerability
+        # Shor breaks asymmetric primitives (factorization, discrete log, elliptic curves)
+        asymmetric_primitives = {
+            "public_key", "signature", "key_exchange",
+            "asymmetric_encryption", "key_agreement"
+        }
+        if quantum_safe:
+            shor_vulnerable = False
+        else:
+            shor_vulnerable = primitive in asymmetric_primitives or algo in {
+                "RSA", "DSA", "ECDSA", "ECDH", "ECC", "DH", "ED25519", "X25519", "ED448", "X448"
+            }
+
+        # 3. Canonical Display Name
         if curve:
             name = f"{algo}-{curve}"
         elif mode:
@@ -92,12 +116,18 @@ class AssetNormalizer:
             name = algo
 
         location = f"{file_path}:{line}"
-        asset_id = self._generate_id("src", location, f"{algo}:{curve or ''}")
+        asset_id = self._generate_id("src", location, f"{algo}:{curve or mode or ''}")
+
+        metadata = finding.get("raw_metadata", {}).copy()
+        if finding.get("language"):
+            metadata["language"] = finding.get("language")
+        if finding.get("operation"):
+            metadata["operation"] = finding.get("operation")
 
         return NormalizedCryptoAsset(
             asset_id=asset_id,
             name=name,
-            asset_type="algorithm",
+            asset_type=asset_type,
             source_domain="source_code",
             location=location,
             algorithm=algo,
@@ -105,12 +135,12 @@ class AssetNormalizer:
             key_size=key_size,
             mode=mode,
             padding=padding,
-            curve=curve,                       # <--- ADD
-            quantum_safe=finding.get("quantum_safe", False),
-            shor_vulnerable=not finding.get("quantum_safe", False),
+            curve=curve,
+            quantum_safe=quantum_safe,
+            shor_vulnerable=shor_vulnerable,
             nist_status=finding.get("nist_status", "unknown"),
             security_findings=finding.get("security_findings", []),
-            raw_metadata=finding.get("raw_metadata", {}),
+            raw_metadata=metadata,
         )
 
     def _normalize_artifact(self, finding: Dict[str, Any]) -> NormalizedCryptoAsset:
@@ -121,7 +151,7 @@ class AssetNormalizer:
             algo = finding.get("public_key_algorithm", "RSA")
             key_size = finding.get("key_size")
             name = f"Certificate ({finding.get('subject', 'unnamed')})"
-            asset_id = self._generate_id("cert", file_path, finding.get("serial_number", ""))
+            asset_id = self._generate_id("cert", file_path, str(finding.get("serial_number", "")))
 
             return NormalizedCryptoAsset(
                 asset_id=asset_id,
@@ -130,10 +160,10 @@ class AssetNormalizer:
                 source_domain="artifacts",
                 location=file_path,
                 algorithm=algo,
-                primitive="asymmetric_signing",
+                primitive="signature",
                 key_size=key_size,
                 quantum_safe=finding.get("quantum_safe", False),
-                shor_vulnerable=finding.get("shor_vulnerable", True),
+                shor_vulnerable=True,
                 nist_status="legacy_approved",
                 security_findings=finding.get("security_findings", []),
                 raw_metadata=finding.get("raw_metadata", {}),
@@ -147,7 +177,7 @@ class AssetNormalizer:
             return NormalizedCryptoAsset(
                 asset_id=asset_id,
                 name=f"Binary Crypto ({Path(file_path).name})",
-                asset_type="key" if "key" in algo_str.lower() else "algorithm",
+                asset_type="algorithm",
                 source_domain="artifacts",
                 location=file_path,
                 algorithm=algo_str,
@@ -202,10 +232,10 @@ class AssetNormalizer:
                 source_domain="infrastructure",
                 location=arn,
                 algorithm=algo,
-                primitive="key_management" if service == "kms" else "public_key_encryption",
+                primitive="key_management" if service == "kms" else "public_key",
                 key_size=key_size,
                 quantum_safe=finding.get("quantum_safe", False),
-                shor_vulnerable=finding.get("shor_vulnerable", True),
+                shor_vulnerable=True,
                 nist_status="approved",
                 security_findings=finding.get("security_findings", []),
                 raw_metadata=finding.get("raw_metadata", {}),
@@ -263,7 +293,6 @@ class AssetNormalizer:
         location = f"{target}:{port}"
 
         if "cipher_suite" in finding:
-            # Active TLS Handshake
             cipher = finding.get("cipher_suite", "unknown")
             tls_ver = finding.get("tls_version", "unknown")
             asset_id = self._generate_id("net", location, cipher)
@@ -275,17 +304,16 @@ class AssetNormalizer:
                 source_domain="network",
                 location=location,
                 algorithm=cipher,
-                primitive="key_exchange_and_transport",
+                primitive="secure_transport",
                 key_size=finding.get("cert_key_size"),
                 quantum_safe=finding.get("quantum_safe", False),
-                shor_vulnerable=finding.get("shor_vulnerable", True),
+                shor_vulnerable=True,
                 nist_status="approved" if tls_ver in ["TLSv1.2", "TLSv1.3"] else "deprecated",
                 security_findings=finding.get("security_findings", []),
                 raw_metadata=finding.get("raw_metadata", {}),
             )
 
         elif finding.get("config_type") == "nginx":
-            # Nginx config
             ciphers = finding.get("ciphers") or "DEFAULT"
             server_name = finding.get("server_name", "default")
             f_path = finding.get("file_path", "")
@@ -300,7 +328,7 @@ class AssetNormalizer:
                 source_domain="network",
                 location=loc,
                 algorithm=ciphers,
-                primitive="tls_proxy_termination",
+                primitive="secure_transport",
                 quantum_safe=finding.get("quantum_safe", False),
                 shor_vulnerable=finding.get("shor_vulnerable", True),
                 nist_status="configurable",
@@ -309,7 +337,6 @@ class AssetNormalizer:
             )
 
         elif finding.get("protocol") == "ssh":
-            # SSH protocol config
             f_path = finding.get("file_path", "")
             asset_id = self._generate_id("ssh", f_path, "sshd")
 
@@ -320,7 +347,7 @@ class AssetNormalizer:
                 source_domain="network",
                 location=f_path,
                 algorithm="SSH-Transport",
-                primitive="secure_shell_transport",
+                primitive="secure_transport",
                 quantum_safe=finding.get("quantum_safe", False),
                 shor_vulnerable=finding.get("shor_vulnerable", True),
                 nist_status="approved",
@@ -342,9 +369,9 @@ class AssetNormalizer:
             source_domain=finding.get("source_domain", "unknown"),
             location=loc,
             algorithm=algo,
-            primitive="cryptographic_operation",
+            primitive=finding.get("primitive", "cryptographic_operation"),
             quantum_safe=finding.get("quantum_safe", False),
-            shor_vulnerable=finding.get("shor_vulnerable", True),
+            shor_vulnerable=not finding.get("quantum_safe", False),
             nist_status="unknown",
             security_findings=finding.get("security_findings", []),
             raw_metadata=finding.get("raw_metadata", {}),

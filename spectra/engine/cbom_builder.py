@@ -120,13 +120,15 @@ class CBOMBuilder:
             },
         }
 
-        # Key / Mode attributes
+        # Key / Mode / Curve / Padding attributes
         if asset.key_size:
             crypto_prop["algorithmProperties"]["keyLength"] = asset.key_size
         if asset.mode:
             crypto_prop["algorithmProperties"]["mode"] = asset.mode
         if asset.padding:
             crypto_prop["algorithmProperties"]["padding"] = asset.padding
+        if asset.curve:
+            crypto_prop["algorithmProperties"]["curve"] = asset.curve
 
         # Quantum risk & NIST metadata
         crypto_prop["properties"] = [
@@ -134,6 +136,17 @@ class CBOMBuilder:
             {"name": "crypto:shorVulnerable", "value": str(asset.shor_vulnerable).lower()},
             {"name": "crypto:nistStatus", "value": str(asset.nist_status)},
         ]
+
+        # Ingest scanner context (language, operation)
+        if hasattr(asset, "raw_metadata") and isinstance(asset.raw_metadata, dict):
+            if "language" in asset.raw_metadata:
+                crypto_prop["properties"].append(
+                    {"name": "crypto:sourceLanguage", "value": str(asset.raw_metadata["language"])}
+                )
+            if "operation" in asset.raw_metadata:
+                crypto_prop["properties"].append(
+                    {"name": "crypto:operation", "value": str(asset.raw_metadata["operation"])}
+                )
 
         if mosca:
             crypto_prop["properties"].extend([

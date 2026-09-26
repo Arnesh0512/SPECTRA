@@ -42,7 +42,7 @@ class SourceScanOrchestrator:
             for ext in scanner.supported_extensions():
                 self.ext_to_scanner[ext] = scanner
 
-        # Build dynamic, high-recall regex pattern from loaded YAML knowledge base
+        # Build dynamic, high-recall regex pattern from loaded YAML rules and component catalogs
         self.dynamic_crypto_regex = self._build_dynamic_regex()
 
     def scan(self, target_dir: Path) -> List[SourceFinding]:
@@ -74,7 +74,8 @@ class SourceScanOrchestrator:
     def _build_dynamic_regex(self) -> str:
         """
         Dynamically derives regex search tokens from all registered YAML rules
-        combining library imports, C/C++ headers, and core crypto classes.
+        and component catalogs (common.json, crypto_capable_dependencies.json,
+        and language vocabulary).
         """
         raw_tokens: Set[str] = set()
 
@@ -93,18 +94,55 @@ class SourceScanOrchestrator:
                     if cp.call and "." in cp.call:
                         raw_tokens.add(cp.call.split(".")[0])
 
-        # 2. Add high-confidence fallback anchors
-        fallback_anchors = {
-            "cryptography", "Crypto", "Cryptodome", "hashlib", "nacl",
-            "javax.crypto", "java.security", "bouncycastle", "ECGenParameterSpec",
-            "KeyStore", "KeyPairGenerator", "Cipher", "MessageDigest",
-            "crypto-js", "subtle", "createCipheriv", "createHash",
-            "crypto/aes", "crypto/rsa", "crypto/tls", "crypto/ecdsa",
-            "ring::", "aes_gcm", "rustls", "openssl", "sodium"
-        }
-        raw_tokens.update(fallback_anchors)
+        # 2. Ingest catalog anchors from common.json, crypto_capable_dependencies.json, and language JSONs
+        catalog_anchors = {
+            # --- Python Ecosystem ---
+            "cryptography", "pycryptodome", "pycrypto", "pynacl", "pyopenssl",
+            "python-jose", "jwcrypto", "paramiko", "hashlib", "hmac", "secrets",
+            "Fernet", "AESGCM", "ChaCha20Poly1305", "load_pem_private_key",
+            "load_pem_public_key", "load_pem_x509_certificate",
 
-        sorted_tokens = sorted([re.escape(t).replace(r"\[/\\\.\]", r"[/\\.]") for t in raw_tokens if len(t) >= 3], key=len, reverse=True)
+            # --- JVM Ecosystem (Java / Kotlin) ---
+            "java.security", "javax.crypto", "javax.net.ssl", "org.bouncycastle",
+            "bouncycastle", "com.google.crypto.tink", "conscrypt", "xmlsec", "jasypt",
+            "io.ktor.network.tls", "Cipher", "Signature", "MessageDigest", "Mac",
+            "KeyPairGenerator", "KeyGenerator", "KeyStore", "CertificateFactory",
+            "SSLContext", "TrustManagerFactory", "KeyManagerFactory", "SecureRandom",
+            "SecretKeySpec", "IvParameterSpec", "AndroidKeyStore",
+
+            # --- JS / TS Ecosystem ---
+            "crypto-js", "node-forge", "jsonwebtoken", "jose", "tweetnacl",
+            "libsodium-wrappers", "elliptic", "SubtleCrypto", "crypto.subtle",
+            "window.crypto", "createCipheriv", "createDecipheriv", "createSign",
+            "createVerify", "createHash", "createHmac", "generateKeyPair",
+            "createPrivateKey", "createSecureContext",
+
+            # --- Go Ecosystem ---
+            "crypto/aes", "crypto/des", "crypto/cipher", "crypto/rsa", "crypto/ecdsa",
+            "crypto/ed25519", "crypto/ecdh", "crypto/elliptic", "crypto/tls",
+            "crypto/x509", "crypto/hmac", "crypto/sha256", "crypto/sha512",
+            "crypto/rand", "golang.org/x/crypto", "github.com/cloudflare/circl",
+            "github.com/google/tink/go", "github.com/golang-jwt/jwt", "github.com/lestrrat-go/jwx",
+            "github.com/youmark/pkcs8", "LoadX509KeyPair", "ParseCertificate",
+
+            # --- C / C++ Ecosystem ---
+            "openssl", "boringssl", "libressl", "libsodium", "sodium.h", "mbedtls",
+            "wolfssl", "botan", "cryptopp", "gnutls", "EVP_", "SSL_", "TLS_",
+            "RSA_", "EC_KEY_", "X509_", "BIO_", "crypto_box", "crypto_sign",
+
+            # --- Rust Ecosystem ---
+            "ring::", "rustls", "openssl_sys", "aes_gcm", "chacha20poly1305",
+            "ed25519_dalek", "x25519_dalek", "x509_parser", "webpki", "hkdf",
+            "pqcrypto_kyber", "pqcrypto_dilithium", "pqcrypto_sphincsplus",
+            "with_safe_defaults", "from_pkcs8"
+        }
+        raw_tokens.update(catalog_anchors)
+
+        sorted_tokens = sorted(
+            [re.escape(t).replace(r"\[/\\\.\]", r"[/\\.]") for t in raw_tokens if len(t) >= 3],
+            key=len,
+            reverse=True
+        )
         return r"\b(" + "|".join(sorted_tokens) + r")"
 
     def _run_ripgrep_filter(self, target_dir: Path) -> Set[Path]:

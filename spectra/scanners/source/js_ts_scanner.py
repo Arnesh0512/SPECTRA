@@ -98,6 +98,13 @@ MODERN_ECC_REGEX = re.compile(
     re.IGNORECASE
 )
 
+# 15. JWT, JOSE, and Password Hashes (bcrypt, argon2, hkdf)
+JWT_KDF_REGEX = re.compile(
+    r'\b(?P<lib>jwt|bcrypt|argon2)\.(?P<method>sign|verify|hash|compare|PasswordHasher)|'
+    r'\bnew\s+(?P<class>SignJWT)\b|\b(?P<bare_func>jwtVerify|hkdf)\s*\(',
+    re.IGNORECASE
+)
+
 
 class JSTSSParser(BaseSourceScanner):
     """Scanner for JavaScript (.js, .jsx, .mjs, .cjs) and TypeScript (.ts, .tsx) files."""
@@ -413,6 +420,56 @@ class JSTSSParser(BaseSourceScanner):
                     raw_metadata={"token": "Math.random"}
                 )
             )
+
+        # 15. JWT, JOSE, Bcrypt, Argon2, HKDF
+        for match in JWT_KDF_REGEX.finditer(content):
+            lib = (match.group("lib") or match.group("class") or match.group("bare_func") or "").lower()
+            method = match.group("method") or ""
+            line_idx = self._offset_to_line(content, match.start())
+            col = match.start()
+            snippet = self.extract_snippet(file_path, line_idx)
+
+            if "jwt" in lib or "signjwt" in lib or "jwtverify" in lib:
+                algo = "JWT"
+                prim = "signature"
+                op = "token_generation" if ("sign" in method or "signjwt" in lib) else "token_verification"
+                q_safe = False
+            elif "bcrypt" in lib:
+                algo = "bcrypt"
+                prim = "key_derivation"
+                op = "password_hash" if "hash" in method else "password_verify"
+                q_safe = False
+            elif "argon2" in lib:
+                algo = "Argon2"
+                prim = "key_derivation"
+                op = "password_hash"
+                q_safe = True
+            elif "hkdf" in lib:
+                algo = "HKDF"
+                prim = "key_derivation"
+                op = "key_derivation"
+                q_safe = True
+            else:
+                algo = "GenericKDF"
+                prim = "key_derivation"
+                op = "key_derivation"
+                q_safe = False
+
+            findings.append(SourceFinding(
+                source_domain="source_code",
+                language="js_ts",
+                file_path=str(file_path.resolve()),
+                line_number=line_idx,
+                column_number=col,
+                code_snippet=snippet,
+                primitive=prim,
+                algorithm=algo,
+                operation=op,
+                quantum_safe=q_safe,
+                nist_status="approved",
+                security_findings=[],
+                raw_metadata={"js_call": match.group(0)}
+            ))
 
         return findings
 
