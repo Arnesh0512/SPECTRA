@@ -10,8 +10,8 @@ from pathlib import Path
 import re
 from typing import Dict, List, Optional, Tuple, Any
 
-from .base import BaseSourceScanner, SourceFinding[cite: 11]
-from .rules import RuleEngine[cite: 13]
+from .base import BaseSourceScanner, SourceFinding
+from .rules import RuleEngine
 
 
 # 1. Standard crypto calls: aes.NewCipher, des.NewCipher, rc4.NewCipher

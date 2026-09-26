@@ -1,4 +1,6 @@
-version: "1.0"
+version: "2.0"
+description: "Universal cryptographic algorithm catalog enriched with common.json primitives, KDFs, MACs, and modern hashes."
+
 algorithms:
   # --- Symmetric Ciphers ---
   - id: ALGO-AES
@@ -50,6 +52,25 @@ algorithms:
       - '(?i)\bBlowfish\b'
     weak_modes:
       - ALL
+
+  - id: ALGO-TWOFISH
+    name: Twofish
+    primitive: symmetric_cipher
+    quantum_safe: false
+    nist_status: approved
+    patterns:
+      - '(?i)\bTwofish\b'
+    weak_modes:
+      - ECB
+
+  - id: ALGO-SALSA20
+    name: Salsa20
+    primitive: symmetric_cipher
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bSalsa20\b'
+    weak_modes: []
 
   - id: ALGO-CHACHA20
     name: ChaCha20
@@ -112,7 +133,7 @@ algorithms:
     quantum_safe: false
     nist_status: deprecated_pqc
     patterns:
-      - '(?i)\bECDSA\b'
+      - '(?i)\b(ECDSA|EdDSA)\b'
       - '(?i)\b(secp256k1|secp256r1|secp384r1|secp521r1|prime256v1)\b'
     weak_modes: []
 
@@ -122,7 +143,7 @@ algorithms:
     quantum_safe: false
     nist_status: deprecated_pqc
     patterns:
-      - '(?i)\b(ECDH|ECDHE)\b'
+      - '(?i)\b(ECDH|ECDHE|Diffie[-_]?Hellman)\b'
     weak_modes: []
 
   - id: ALGO-ED25519
@@ -289,6 +310,15 @@ algorithms:
       - '(?i)\bBLAKE2s\b'
     weak_modes: []
 
+  - id: ALGO-BLAKE3
+    name: BLAKE3
+    primitive: hash
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bBLAKE3\b'
+    weak_modes: []
+
   - id: ALGO-MD5
     name: MD5
     primitive: hash
@@ -309,6 +339,7 @@ algorithms:
     weak_modes:
       - ALL
 
+  # --- MAC Extensions ---
   - id: ALGO-HMAC
     name: HMAC
     primitive: mac
@@ -318,7 +349,80 @@ algorithms:
       - '(?i)\bHMAC\b'
     weak_modes: []
 
-  # --- General Loaders & System Crypto ---
+  - id: ALGO-CMAC
+    name: CMAC
+    primitive: mac
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bCMAC\b'
+    weak_modes: []
+
+  - id: ALGO-GMAC
+    name: GMAC
+    primitive: mac
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bGMAC\b'
+    weak_modes: []
+
+  # --- Key Derivation Functions (KDF) & Password Hashes ---
+  - id: ALGO-PBKDF2
+    name: PBKDF2
+    primitive: key_derivation
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bPBKDF2\b'
+    weak_modes: []
+
+  - id: ALGO-HKDF
+    name: HKDF
+    primitive: key_derivation
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bHKDF\b'
+    weak_modes: []
+
+  - id: ALGO-SCRYPT
+    name: scrypt
+    primitive: key_derivation
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bscrypt\b'
+    weak_modes: []
+
+  - id: ALGO-ARGON2
+    name: Argon2
+    primitive: key_derivation
+    quantum_safe: true
+    nist_status: approved
+    patterns:
+      - '(?i)\bArgon2(id|i|d)?\b'
+    weak_modes: []
+
+  - id: ALGO-BCRYPT
+    name: bcrypt
+    primitive: key_derivation
+    quantum_safe: false
+    nist_status: legacy
+    patterns:
+      - '(?i)\bbcrypt\b'
+    weak_modes: []
+
+  # --- Protocol Tokens & System Cryptography ---
+  - id: ALGO-JWT
+    name: JWT
+    primitive: key_management
+    quantum_safe: false
+    nist_status: approved
+    patterns:
+      - '(?i)\b(JWT|JWS|JWE|JWK)\b'
+    weak_modes: []
+
   - id: ALGO-ASYMMETRIC-KEY
     name: AsymmetricKey
     primitive: key_management
