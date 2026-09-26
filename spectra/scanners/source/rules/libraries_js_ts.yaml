@@ -1,67 +1,304 @@
-version: "1.0"
+version: "2.0"
 language: js_ts
+description: "Unified JavaScript and TypeScript ruleset covering Node.js crypto, WebCrypto subtle, CryptoJS, node-forge, noble-curves, and tweetnacl."
 
 libraries:
+  # =========================================================================
+  # 1. NODE.JS CORE CRYPTO MODULE (crypto & node:crypto)
+  # =========================================================================
   - name: node_crypto
     imports:
       - "crypto"
       - "node:crypto"
     call_patterns:
+      # Symmetric Encryption & Decryption
       - call: "createCipheriv"
+        operation: "symmetric_encryption_init"
         extract_args:
           position_0: "algorithm"
         flag_insecure_modes:
           - "ecb"
+
       - call: "createDecipheriv"
+        operation: "symmetric_decryption_init"
         extract_args:
           position_0: "algorithm"
         flag_insecure_modes:
           - "ecb"
+
+      - call: "createCipher"
+        operation: "symmetric_encryption_init"
+        flag_insecure: true
+        issue: "Deprecated crypto.createCipher() used (derives weak keys using OpenSSL EVP_BytesToKey)"
+
+      - call: "createDecipher"
+        operation: "symmetric_decryption_init"
+        flag_insecure: true
+        issue: "Deprecated crypto.createDecipher() used"
+
+      # Asymmetric Key Pair Generation
       - call: "generateKeyPair"
+        operation: "keypair_generation"
         extract_args:
           position_0: "type"
+        flag_insecure_if:
+          key_size_less_than: 2048
+
       - call: "generateKeyPairSync"
+        operation: "keypair_generation"
         extract_args:
           position_0: "type"
+        flag_insecure_if:
+          key_size_less_than: 2048
+
+      - call: "generateKey"
+        operation: "symmetric_key_generation"
+
+      - call: "generateKeySync"
+        operation: "symmetric_key_generation"
+
+      # Cryptographic Hashes & MACs
       - call: "createHash"
+        operation: "digest_computation"
         extract_args:
           position_0: "algorithm"
         flag_insecure_algorithms:
           - "md5"
           - "sha1"
+
       - call: "createHmac"
+        operation: "mac_computation"
+        extract_args:
+          position_0: "algorithm"
+        flag_insecure_algorithms:
+          - "md5"
+          - "sha1"
+
+      # Digital Signatures & Verification
+      - call: "createSign"
+        operation: "signature_generation"
         extract_args:
           position_0: "algorithm"
 
+      - call: "createVerify"
+        operation: "signature_verification"
+        extract_args:
+          position_0: "algorithm"
+
+      - call: "sign"
+        operation: "digital_signature"
+
+      - call: "verify"
+        operation: "signature_verification"
+
+      # Diffie-Hellman Key Exchange
+      - call: "createDiffieHellman"
+        algo_id: ALGO-ECDH
+        primitive: "key_exchange"
+        operation: "key_agreement_init"
+
+      - call: "createECDH"
+        algo_id: ALGO-ECDH
+        primitive: "key_exchange"
+        operation: "key_agreement_init"
+        curve_mappings:
+          secp256k1: "secp256k1"
+          prime256v1: "NIST-P256"
+          secp384r1: "NIST-P384"
+          secp521r1: "NIST-P521"
+
+      # CSPRNG
+      - call: "randomBytes"
+        algo_id: ALGO-CSPRNG
+        primitive: "prng"
+        operation: "secure_random"
+
+      - call: "randomUUID"
+        algo_id: ALGO-CSPRNG
+        primitive: "prng"
+
+  # =========================================================================
+  # 2. BROWSER & RUNTIME WEBCRYPTO (crypto.subtle)
+  # =========================================================================
   - name: web_crypto
     imports:
-      - "window.crypto.subtle"
       - "crypto.subtle"
+      - "window.crypto.subtle"
     call_patterns:
       - call: "subtle.generateKey"
-        extract_algorithm_param: "name"
-      - call: "subtle.encrypt"
-        extract_algorithm_param: "name"
-      - call: "subtle.digest"
-        extract_algorithm_param: "name"
+        operation: "key_generation"
+        curve_mappings:
+          P-256: "NIST-P256"
+          P-384: "NIST-P384"
+          P-521: "NIST-P521"
+        flag_insecure_if:
+          key_size_less_than: 2048
 
+      - call: "subtle.encrypt"
+        operation: "encryption"
+
+      - call: "subtle.decrypt"
+        operation: "decryption"
+
+      - call: "subtle.sign"
+        operation: "digital_signature"
+
+      - call: "subtle.verify"
+        operation: "signature_verification"
+
+      - call: "subtle.digest"
+        operation: "digest_computation"
+        flag_insecure_algorithms:
+          - "SHA-1"
+
+      - call: "subtle.deriveKey"
+        operation: "key_derivation"
+
+      - call: "subtle.deriveBits"
+        operation: "key_derivation"
+
+      - call: "getRandomValues"
+        algo_id: ALGO-CSPRNG
+        primitive: "prng"
+
+  # =========================================================================
+  # 3. CRYPTO-JS
+  # =========================================================================
   - name: crypto_js
     imports:
       - "crypto-js"
     call_patterns:
-      - call: "AES.encrypt"
+      - call: "CryptoJS.AES.encrypt"
         algo_id: ALGO-AES
-      - call: "DES.encrypt"
+        primitive: "symmetric_cipher"
+        operation: "encryption"
+        flag_insecure_modes:
+          - "mode.ECB"
+          - "ECB"
+
+      - call: "CryptoJS.AES.decrypt"
+        algo_id: ALGO-AES
+        primitive: "symmetric_cipher"
+        operation: "decryption"
+
+      - call: "CryptoJS.DES.encrypt"
         algo_id: ALGO-DES
+        primitive: "symmetric_cipher"
         flag_insecure: true
-      - call: "TripleDES.encrypt"
-        algo_id: ALGO-DES
+        operation: "encryption"
+
+      - call: "CryptoJS.TripleDES.encrypt"
+        algo_id: ALGO-3DES
+        primitive: "symmetric_cipher"
         flag_insecure: true
-      - call: "MD5"
+        operation: "encryption"
+
+      - call: "CryptoJS.RC4.encrypt"
+        algo_id: ALGO-RC4
+        primitive: "symmetric_cipher"
+        flag_insecure: true
+        operation: "encryption"
+
+      - call: "CryptoJS.Rabbit.encrypt"
+        algo_id: ALGO-RABBIT
+        primitive: "symmetric_cipher"
+        operation: "encryption"
+
+      - call: "CryptoJS.MD5"
         algo_id: ALGO-MD5
+        primitive: "hash"
         flag_insecure: true
-      - call: "SHA1"
+
+      - call: "CryptoJS.SHA1"
         algo_id: ALGO-SHA1
+        primitive: "hash"
         flag_insecure: true
-      - call: "SHA256"
-        algo_id: ALGO-SHA2
+
+      - call: "CryptoJS.SHA256"
+        algo_id: ALGO-SHA2-256
+        primitive: "hash"
+
+      - call: "CryptoJS.SHA512"
+        algo_id: ALGO-SHA2-512
+        primitive: "hash"
+
+      - call: "CryptoJS.HmacMD5"
+        algo_id: ALGO-HMAC
+        primitive: "mac"
+        flag_insecure: true
+
+      - call: "CryptoJS.HmacSHA1"
+        algo_id: ALGO-HMAC
+        primitive: "mac"
+        flag_insecure: true
+
+      - call: "CryptoJS.HmacSHA256"
+        algo_id: ALGO-HMAC
+        primitive: "mac"
+
+  # =========================================================================
+  # 4. NODE-FORGE & MODERN ECC (@noble/curves, tweetnacl)
+  # =========================================================================
+  - name: node_forge
+    imports:
+      - "node-forge"
+      - "forge"
+    call_patterns:
+      - call: "forge.rsa.generateKeyPair"
+        algo_id: ALGO-RSA
+        primitive: "public_key"
+        operation: "keypair_generation"
+        flag_insecure_if:
+          key_size_less_than: 2048
+
+      - call: "forge.cipher.createCipher"
+        operation: "symmetric_encryption_init"
+
+      - call: "forge.md.md5.create"
+        algo_id: ALGO-MD5
+        primitive: "hash"
+        flag_insecure: true
+
+      - call: "forge.md.sha1.create"
+        algo_id: ALGO-SHA1
+        primitive: "hash"
+        flag_insecure: true
+
+      - call: "forge.md.sha256.create"
+        algo_id: ALGO-SHA2-256
+        primitive: "hash"
+
+  - name: noble_and_nacl
+    imports:
+      - "@noble/curves"
+      - "@noble/hashes"
+      - "tweetnacl"
+    call_patterns:
+      - call: "secp256k1.getPublicKey"
+        algo_id: ALGO-ECDSA
+        curve: "secp256k1"
+        primitive: "signature"
+
+      - call: "ed25519.getPublicKey"
+        algo_id: ALGO-ED25519
+        curve: "Ed25519"
+        primitive: "signature"
+
+      - call: "x25519.getSharedSecret"
+        algo_id: ALGO-X25519
+        curve: "X25519"
+        primitive: "key_exchange"
+
+      - call: "nacl.sign.keyPair"
+        algo_id: ALGO-ED25519
+        curve: "Ed25519"
+        primitive: "signature"
+
+      - call: "nacl.box.keyPair"
+        algo_id: ALGO-X25519
+        curve: "X25519"
+        primitive: "key_exchange"
+
+      - call: "nacl.secretbox"
+        algo_id: ALGO-XSALSA20-POLY1305
+        primitive: "symmetric_cipher"

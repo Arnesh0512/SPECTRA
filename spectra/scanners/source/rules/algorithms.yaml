@@ -17,7 +17,7 @@ algorithms:
     quantum_safe: false
     nist_status: deprecated_classical
     patterns:
-      - '(?i)\b(3DES|DES3|DESede|TripleDES)\b'
+      - '(?i)\b(3DES|DES3|DESede|TripleDES|des-ede3)\b'
     weak_modes:
       - ALL
 
