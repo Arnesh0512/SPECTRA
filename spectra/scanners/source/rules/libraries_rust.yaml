@@ -1,24 +1,191 @@
-version: "1.0"
+version: "2.0"
 language: rust
-description: "Rust cryptographic rules covering ring, aes_gcm, rsa, and rustls."
+description: "Comprehensive Rust cryptographic rules covering ring, RustCrypto crates (aes-gcm, rsa, ecc), rustls, dalek crates, and CodeQL Layer 3 targets."
 
 libraries:
-  - name: rust_crypto
+  # =========================================================================
+  # 1. RING (AEAD, Signatures, Key Agreement, Digests)
+  # =========================================================================
+  - name: ring_crypto
     imports:
       - "ring::aead"
       - "ring::agreement"
       - "ring::signature"
+      - "ring::digest"
+      - "ring::rand"
+    call_patterns:
+      # AEAD & Ciphers
+      - call: "aead::AES_256_GCM"
+        algo_id: ALGO-AES
+        primitive: "symmetric_cipher"
+        mode: "GCM"
+        operation: "aead_init"
+
+      - call: "aead::AES_128_GCM"
+        algo_id: ALGO-AES
+        primitive: "symmetric_cipher"
+        mode: "GCM"
+        operation: "aead_init"
+
+      - call: "aead::CHACHA20_POLY1305"
+        algo_id: ALGO-CHACHA20-POLY1305
+        primitive: "symmetric_cipher"
+        operation: "aead_init"
+
+      # Key Agreement (ECDH & X25519)
+      - call: "agreement::X25519"
+        algo_id: ALGO-X25519
+        primitive: "key_exchange"
+        curve: "X25519"
+        operation: "key_agreement_init"
+
+      - call: "agreement::ECDH_P256"
+        algo_id: ALGO-ECDH
+        primitive: "key_exchange"
+        curve: "NIST-P256"
+        operation: "key_agreement_init"
+
+      - call: "agreement::ECDH_P384"
+        algo_id: ALGO-ECDH
+        primitive: "key_exchange"
+        curve: "NIST-P384"
+        operation: "key_agreement_init"
+
+      # Digital Signatures
+      - call: "signature::ED25519"
+        algo_id: ALGO-ED25519
+        primitive: "signature"
+        curve: "Ed25519"
+        operation: "digital_signature"
+
+      - call: "signature::RSA_PKCS1_2048_8192_SHA256"
+        algo_id: ALGO-RSA
+        primitive: "signature"
+        operation: "digital_signature"
+
+      # Digests
+      - call: "digest::SHA256"
+        algo_id: ALGO-SHA2-256
+        primitive: "hash"
+        operation: "digest_computation"
+
+      - call: "digest::SHA512"
+        algo_id: ALGO-SHA2-512
+        primitive: "hash"
+        operation: "digest_computation"
+
+  # =========================================================================
+  # 2. RUSTCRYPTO (aes-gcm, rsa, curves, sha2)
+  # =========================================================================
+  - name: rustcrypto
+    imports:
       - "aes_gcm"
       - "rsa"
-      - "rustls"
+      - "p256"
+      - "p384"
+      - "k256"
+      - "sha2"
+      - "md5"
+      - "sha1"
     call_patterns:
       - call: "Aes256Gcm::new"
         algo_id: ALGO-AES
+        primitive: "symmetric_cipher"
+        mode: "GCM"
+        operation: "aead_init"
+
       - call: "Aes128Gcm::new"
         algo_id: ALGO-AES
+        primitive: "symmetric_cipher"
+        mode: "GCM"
+        operation: "aead_init"
+
       - call: "RsaPrivateKey::new"
         algo_id: ALGO-RSA
-      - call: "aead::AES_256_GCM"
-        algo_id: ALGO-AES
-      - call: "aead::CHACHA20_POLY1305"
-        algo_id: ALGO-CHACHA20-POLY1305
+        primitive: "public_key"
+        operation: "keypair_generation"
+        flag_insecure_if:
+          key_size_less_than: 2048
+
+      # CodeQL isCryptoApi Target: PKCS#8 Deserialization
+      - call: "from_pkcs8_pem"
+        primitive: "key_management"
+        operation: "load_private_key"
+
+      - call: "from_pkcs8_der"
+        primitive: "key_management"
+        operation: "load_private_key"
+
+      # Elliptic Curves
+      - call: "p256::SecretKey::random"
+        algo_id: ALGO-ECC
+        primitive: "public_key"
+        curve: "NIST-P256"
+        operation: "keypair_generation"
+
+      - call: "p384::SecretKey::random"
+        algo_id: ALGO-ECC
+        primitive: "public_key"
+        curve: "NIST-P384"
+        operation: "keypair_generation"
+
+      - call: "k256::SecretKey::random"
+        algo_id: ALGO-ECC
+        primitive: "public_key"
+        curve: "secp256k1"
+        operation: "keypair_generation"
+
+      # Insecure Legacy Ciphers & Hashes
+      - call: "md5::Md5::new"
+        algo_id: ALGO-MD5
+        primitive: "hash"
+        flag_insecure: true
+        operation: "digest_computation"
+
+      - call: "sha1::Sha1::new"
+        algo_id: ALGO-SHA1
+        primitive: "hash"
+        flag_insecure: true
+        operation: "digest_computation"
+
+  # =========================================================================
+  # 3. RUSTLS & TRANSPORT SECURITY
+  # =========================================================================
+  - name: rustls
+    imports:
+      - "rustls"
+      - "tokio_rustls"
+    call_patterns:
+      # CodeQL isCryptoApi Target: with_safe_defaults & bind
+      - call: "with_safe_defaults"
+        primitive: "secure_transport"
+        operation: "tls_configuration"
+
+      - call: "bind"
+        primitive: "secure_transport"
+        operation: "tls_server_bind"
+
+  # =========================================================================
+  # 4. POST-QUANTUM CRYPTOGRAPHY (pqcrypto)
+  # =========================================================================
+  - name: pqcrypto
+    imports:
+      - "pqcrypto_kyber"
+      - "pqcrypto_dilithium"
+      - "pqcrypto_sphincsplus"
+      - "pqcrypto_falcon"
+    call_patterns:
+      - call: "kyber768::keypair"
+        algo_id: ALGO-ML-KEM
+        primitive: "key_encapsulation"
+        operation: "keypair_generation"
+
+      - call: "dilithium3::keypair"
+        algo_id: ALGO-ML-DSA
+        primitive: "signature"
+        operation: "keypair_generation"
+
+      - call: "sphincsplus::keypair"
+        algo_id: ALGO-SLH-DSA
+        primitive: "signature"
+        operation: "keypair_generation"
