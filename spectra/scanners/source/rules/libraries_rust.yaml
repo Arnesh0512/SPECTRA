@@ -1,0 +1,24 @@
+version: "1.0"
+language: rust
+description: "Rust cryptographic rules covering ring, aes_gcm, rsa, and rustls."
+
+libraries:
+  - name: rust_crypto
+    imports:
+      - "ring::aead"
+      - "ring::agreement"
+      - "ring::signature"
+      - "aes_gcm"
+      - "rsa"
+      - "rustls"
+    call_patterns:
+      - call: "Aes256Gcm::new"
+        algo_id: ALGO-AES
+      - call: "Aes128Gcm::new"
+        algo_id: ALGO-AES
+      - call: "RsaPrivateKey::new"
+        algo_id: ALGO-RSA
+      - call: "aead::AES_256_GCM"
+        algo_id: ALGO-AES
+      - call: "aead::CHACHA20_POLY1305"
+        algo_id: ALGO-CHACHA20-POLY1305

@@ -1,0 +1,36 @@
+version: "1.0"
+language: go
+description: "Go cryptographic rules covering standard library crypto/* and golang.org/x/crypto."
+
+libraries:
+  - name: go_crypto
+    imports:
+      - "crypto/aes"
+      - "crypto/des"
+      - "crypto/rsa"
+      - "crypto/ecdsa"
+      - "crypto/sha256"
+      - "crypto/sha512"
+      - "crypto/md5"
+      - "crypto/tls"
+      - "golang.org/x/crypto"
+    call_patterns:
+      - call: "aes.NewCipher"
+        algo_id: ALGO-AES
+      - call: "des.NewCipher"
+        algo_id: ALGO-DES
+        flag_insecure: true
+      - call: "des.NewTripleDESCipher"
+        algo_id: ALGO-3DES
+        flag_insecure: true
+      - call: "rsa.GenerateKey"
+        algo_id: ALGO-RSA
+      - call: "ecdsa.GenerateKey"
+        algo_id: ALGO-ECDSA
+      - call: "md5.New"
+        algo_id: ALGO-MD5
+        flag_insecure: true
+      - call: "sha256.New"
+        algo_id: ALGO-SHA2-256
+      - call: "sha512.New"
+        algo_id: ALGO-SHA2-512

@@ -14,10 +14,12 @@ from spectra.utils.logger import log_info, log_step, log_warning
 from spectra.utils.shell import command_exists, run_command
 
 from .base import BaseSourceScanner, SourceFinding
-from .compiled_src import CompiledLanguageScanner
-from .js_ts_scanner import JSTSSParser
-from .jvm_scanner import JVMScanner
 from .python_scanner import PythonASTScanner
+from .jvm_scanner import JVMScanner
+from .js_ts_scanner import JSTSSParser
+from .cpp_scanner import CPPScanner
+from .go_scanner import GoScanner
+from .rust_scanner import RustScanner
 from .rules import DEFAULT_RULE_ENGINE, RuleEngine
 
 
@@ -31,7 +33,9 @@ class SourceScanOrchestrator:
             PythonASTScanner(rule_engine=self.rule_engine),
             JVMScanner(rule_engine=self.rule_engine),
             JSTSSParser(rule_engine=self.rule_engine),
-            CompiledLanguageScanner(rule_engine=self.rule_engine),
+            CPPScanner(rule_engine=self.rule_engine),
+            GoScanner(rule_engine=self.rule_engine),
+            RustScanner(rule_engine=self.rule_engine),
         ]
         self.ext_to_scanner: Dict[str, BaseSourceScanner] = {}
         for scanner in self.scanners:
@@ -78,13 +82,11 @@ class SourceScanOrchestrator:
         for lang, lib_rules in self.rule_engine.libraries_by_language.items():
             for lib in lib_rules:
                 for imp in lib.imports:
-                    # e.g., 'javax.crypto.Cipher' -> 'javax.crypto', 'javax/crypto'
                     raw_tokens.add(imp.split(".")[0])
                     raw_tokens.add(imp.replace(".", r"[/\\.]"))
                 for hdr in lib.headers:
                     raw_tokens.add(hdr.replace("/", r"[/\\.]"))
 
-                # Add specific class and function entry points
                 for cp in lib.call_patterns:
                     if cp.class_name:
                         raw_tokens.add(cp.class_name)
@@ -102,7 +104,6 @@ class SourceScanOrchestrator:
         }
         raw_tokens.update(fallback_anchors)
 
-        # Clean and sort by length descending to prioritize specific matches
         sorted_tokens = sorted([re.escape(t).replace(r"\[/\\\.\]", r"[/\\.]") for t in raw_tokens if len(t) >= 3], key=len, reverse=True)
         return r"\b(" + "|".join(sorted_tokens) + r")"
 
@@ -110,24 +111,22 @@ class SourceScanOrchestrator:
         """Executes optimized ripgrep subprocess with exclusion and multiline matching."""
         candidates: Set[Path] = set()
         
-        # 1. Target file extension globs
         ext_globs = []
         for ext in self.ext_to_scanner.keys():
             ext_globs.extend(["-g", f"*{ext}"])
 
-        # 2. Excluded directory globs (!dir/**)
         exclude_globs = []
         for ex in self.config.source_scanner.excluded_directories:
             exclude_globs.extend(["-g", f"!**/{ex}/**"])
 
         cmd = [
             "rg",
-            "-l",                                  # Print matching file paths only
-            "--no-messages",                        # Suppress file read / permission errors
+            "-l",
+            "--no-messages",
             "--color", "never",
-            "--mmap",                               # Memory-mapped I/O for speed
-            "--max-filesize", "5M",                 # Avoid massive binary/bundled assets
-            "-e", self.dynamic_crypto_regex,        # Dynamic regex derived from rules
+            "--mmap",
+            "--max-filesize", "5M",
+            "-e", self.dynamic_crypto_regex,
             *ext_globs,
             *exclude_globs,
             str(target_dir)
@@ -135,7 +134,6 @@ class SourceScanOrchestrator:
 
         exit_code, stdout, stderr = run_command(cmd)
 
-        # ripgrep returns 0 on match found, 1 when no matches exist
         if exit_code in (0, 1):
             for line in stdout.splitlines():
                 clean_path = line.strip()
@@ -163,7 +161,6 @@ class SourceScanOrchestrator:
 
             try:
                 with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                    # Read header block in one operation instead of readline() in a loop
                     header_content = "".join([f.readline() for _ in range(max_lines)])
                     if compiled_regex.search(header_content):
                         candidates.add(path.resolve())

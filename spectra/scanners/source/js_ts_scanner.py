@@ -3,7 +3,7 @@ spectra.scanners.source.js_ts_scanner
 ==========================================
 JavaScript and TypeScript source code cryptographic scanner.
 Inspects Node.js 'crypto' module invocations, browser WebCrypto subtle APIs,
-CryptoJS, node-forge, @noble/curves, and TweetNaCl with curve & key size extraction.
+CryptoJS, node-forge, @noble/curves, TweetNaCl, and CodeQL ECDAT Layer 3 targets.
 """
 
 from pathlib import Path
@@ -26,7 +26,7 @@ NODE_HASH_REGEX = re.compile(
     re.IGNORECASE
 )
 
-# Node.js Digital Signature: createSign('SHA256') or createVerify('RSA-SHA256')
+# Node.js Digital Signature Factory: createSign('SHA256') or createVerify('RSA-SHA256')
 NODE_SIGN_REGEX = re.compile(
     r'\b(?:crypto\.)?create(?P<type>Sign|Verify)\s*\(\s*["\'](?P<algo>[^"\']+)["\']',
     re.IGNORECASE
@@ -35,6 +35,24 @@ NODE_SIGN_REGEX = re.compile(
 # Node.js KeyPair: generateKeyPairSync('rsa', { modulusLength: 1024, ... })
 NODE_KEYPAIR_REGEX = re.compile(
     r'\b(?:crypto\.)?generateKeyPair(?:Sync)?\s*\(\s*["\'](?P<type>rsa|dsa|ec|ed25519|ed448|x25519|x448)["\'](?P<options>[^;]+)?',
+    re.IGNORECASE
+)
+
+# CodeQL Ingested: Node.js Key Deserialization createPrivateKey / createPublicKey
+NODE_KEY_LOAD_REGEX = re.compile(
+    r'\b(?:crypto\.)?create(?P<kind>PrivateKey|PublicKey)\s*\(',
+    re.IGNORECASE
+)
+
+# CodeQL Ingested: TLS & Secure Context Creation (tls.createSecureContext / https.createServer)
+TLS_CONTEXT_REGEX = re.compile(
+    r'\b(?:tls|https|crypto)\.(?P<method>createSecureContext|createServer)\s*\(\s*(?P<options>\{[^;]+?\})?',
+    re.IGNORECASE
+)
+
+# CodeQL Ingested: Direct operational calls on receiver objects (signer.sign(), verifier.verify())
+OP_EXEC_REGEX = re.compile(
+    r'\b(?P<receiver>[a-zA-Z0-9_$]+)\s*\.\s*(?P<method>sign|verify)\s*\(',
     re.IGNORECASE
 )
 
@@ -92,7 +110,6 @@ class JSTSSParser(BaseSourceScanner):
         try:
             with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
-                lines = content.splitlines(keepends=True)
         except Exception:
             return []
 
@@ -169,7 +186,89 @@ class JSTSSParser(BaseSourceScanner):
             if finding:
                 findings.append(finding)
 
-        # 5. Node.js ECDH
+        # 5. CodeQL Target: Key Deserialization (createPrivateKey / createPublicKey)
+        for match in NODE_KEY_LOAD_REGEX.finditer(content):
+            kind = match.group("kind")
+            line_idx = self._offset_to_line(content, match.start())
+            snippet = self.extract_snippet(file_path, line_idx)
+            findings.append(
+                SourceFinding(
+                    source_domain="source_code",
+                    language="js_ts",
+                    file_path=str(file_path.resolve()),
+                    line_number=line_idx,
+                    column_number=match.start(),
+                    code_snippet=snippet,
+                    primitive="key_management",
+                    algorithm="AsymmetricKey",
+                    operation=f"load_{kind.lower()}",
+                    quantum_safe=False,
+                    nist_status="operational",
+                    security_findings=[],
+                    raw_metadata={"method": f"create{kind}"}
+                )
+            )
+
+        # 6. CodeQL Target: TLS Contexts (createSecureContext / createServer)
+        for match in TLS_CONTEXT_REGEX.finditer(content):
+            method = match.group("method")
+            opts = match.group("options") or ""
+            line_idx = self._offset_to_line(content, match.start())
+
+            sec_findings = []
+            if any(p in opts.upper() for p in ["TLSV1", "TLSV1.0", "TLSV1.1", "SSLV3"]):
+                sec_findings.append({
+                    "issue": f"Insecure or deprecated TLS version specified in {method}()",
+                    "severity": "CRITICAL"
+                })
+
+            snippet = self.extract_snippet(file_path, line_idx)
+            findings.append(
+                SourceFinding(
+                    source_domain="source_code",
+                    language="js_ts",
+                    file_path=str(file_path.resolve()),
+                    line_number=line_idx,
+                    column_number=match.start(),
+                    code_snippet=snippet,
+                    primitive="secure_transport",
+                    algorithm="TLS",
+                    operation="tls_session_init" if "Context" in method else "tls_server_init",
+                    quantum_safe=False,
+                    nist_status="approved",
+                    security_findings=sec_findings,
+                    raw_metadata={"method": method, "options": opts}
+                )
+            )
+
+        # 7. CodeQL Target: Standalone Operational Calls (sign / verify)
+        for match in OP_EXEC_REGEX.finditer(content):
+            rec = match.group("receiver")
+            method = match.group("method")
+            if rec.lower() in ["math", "crypto"]:
+                continue
+
+            line_idx = self._offset_to_line(content, match.start())
+            snippet = self.extract_snippet(file_path, line_idx)
+            findings.append(
+                SourceFinding(
+                    source_domain="source_code",
+                    language="js_ts",
+                    file_path=str(file_path.resolve()),
+                    line_number=line_idx,
+                    column_number=match.start(),
+                    code_snippet=snippet,
+                    primitive="signature",
+                    algorithm="DigitalSignature",
+                    operation="digital_signature" if method == "sign" else "signature_verification",
+                    quantum_safe=False,
+                    nist_status="operational",
+                    security_findings=[],
+                    raw_metadata={"receiver": rec, "method": method}
+                )
+            )
+
+        # 8. Node.js ECDH
         for match in NODE_ECDH_REGEX.finditer(content):
             curve_str = match.group("curve")
             line_idx = self._offset_to_line(content, match.start())
@@ -186,7 +285,7 @@ class JSTSSParser(BaseSourceScanner):
             if finding:
                 findings.append(finding)
 
-        # 6. WebCrypto Subtle Calls
+        # 9. WebCrypto Subtle Calls
         for match in WEBCRYPTO_SUBTLE_REGEX.finditer(content):
             method = match.group("method")
             params = match.group("params")
@@ -209,7 +308,7 @@ class JSTSSParser(BaseSourceScanner):
             if finding:
                 findings.append(finding)
 
-        # 7. CryptoJS Invocations
+        # 10. CryptoJS Invocations
         for match in CRYPTO_JS_REGEX.finditer(content):
             algo_str = match.group("algo")
             args_str = match.group("args") or ""
@@ -228,7 +327,7 @@ class JSTSSParser(BaseSourceScanner):
             if finding:
                 findings.append(finding)
 
-        # 8. Node Forge
+        # 11. Node Forge
         for match in FORGE_REGEX.finditer(content):
             full_match = match.group(0)
             args_str = match.group("args") or ""
@@ -258,7 +357,7 @@ class JSTSSParser(BaseSourceScanner):
             if finding:
                 findings.append(finding)
 
-        # 9. Modern Noble / TweetNaCl
+        # 12. Modern Noble / TweetNaCl
         for match in MODERN_ECC_REGEX.finditer(content):
             lib_str = match.group("lib")
             line_idx = self._offset_to_line(content, match.start())
@@ -276,7 +375,7 @@ class JSTSSParser(BaseSourceScanner):
             if finding:
                 findings.append(finding)
 
-        # 10. CSPRNG (getRandomValues / randomBytes)
+        # 13. CSPRNG (getRandomValues / randomBytes)
         for match in CSPRNG_REGEX.finditer(content):
             line_idx = self._offset_to_line(content, match.start())
             finding = self._build_finding_from_token(
@@ -290,7 +389,7 @@ class JSTSSParser(BaseSourceScanner):
             if finding:
                 findings.append(finding)
 
-        # 11. Math.random() in potential security context
+        # 14. Math.random() in potential security context
         for match in MATH_RANDOM_REGEX.finditer(content):
             line_idx = self._offset_to_line(content, match.start())
             snippet = self.extract_snippet(file_path, line_idx)
@@ -404,7 +503,6 @@ class JSTSSParser(BaseSourceScanner):
         return None
 
     def _extract_webcrypto_algo(self, params_text: str) -> str:
-        # direct string: 'SHA-256'
         clean = params_text.strip().strip("'\"")
         if clean.isalnum() or "-" in clean:
             return clean

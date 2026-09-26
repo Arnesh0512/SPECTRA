@@ -1,4 +1,4 @@
-crypto-recon/
+spectra/
 ├── spectra/
 │   ├── engine/
 │   │   ├── __init__.py
@@ -44,7 +44,8 @@ crypto-recon/
 │   │   └── shell.py
 │   ├── __init__.py
 │   ├── cli.py
-│   └── config.py
+│   ├── config.py
+│   └── flattener.py
 ├── tests/
 │   ├── fixtures/
 │   ├── __init__.py
@@ -54,7 +55,10 @@ crypto-recon/
 ├── cbom_policy.json
 ├── config.example.yaml
 ├── Dockerfile
-├── installed.txt
+├── helper1.py
 ├── pyproject.toml
 ├── README.md
-└── requirements.txt
+├── requirements.txt
+├── test_2.py
+├── test_3.py
+└── test_ast_integration.py

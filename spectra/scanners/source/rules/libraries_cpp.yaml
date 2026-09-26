@@ -1,0 +1,43 @@
+version: "1.0"
+language: cpp
+description: "C/C++ cryptographic rules covering OpenSSL, BoringSSL, and libsodium."
+
+libraries:
+  - name: openssl
+    headers:
+      - "openssl/evp.h"
+      - "openssl/aes.h"
+      - "openssl/rsa.h"
+      - "openssl/sha.h"
+    call_patterns:
+      - call: "EVP_aes_256_gcm"
+        algo_id: ALGO-AES
+      - call: "EVP_aes_128_cbc"
+        algo_id: ALGO-AES
+      - call: "EVP_aes_128_ecb"
+        algo_id: ALGO-AES
+        flag_insecure: true
+      - call: "EVP_des_ede3_cbc"
+        algo_id: ALGO-3DES
+        flag_insecure: true
+      - call: "RSA_generate_key_ex"
+        algo_id: ALGO-RSA
+      - call: "EVP_sha256"
+        algo_id: ALGO-SHA2-256
+      - call: "EVP_md5"
+        algo_id: ALGO-MD5
+        flag_insecure: true
+
+  - name: libsodium
+    headers:
+      - "sodium.h"
+    call_patterns:
+      - call: "crypto_box_keypair"
+        algo_id: ALGO-X25519
+        primitive: "key_exchange"
+      - call: "crypto_sign_keypair"
+        algo_id: ALGO-ED25519
+        primitive: "signature"
+      - call: "crypto_secretbox_easy"
+        algo_id: ALGO-XSALSA20-POLY1305
+        primitive: "symmetric_cipher"

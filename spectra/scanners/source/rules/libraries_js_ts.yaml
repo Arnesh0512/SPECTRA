@@ -1,6 +1,6 @@
 version: "2.0"
 language: js_ts
-description: "Unified JavaScript and TypeScript ruleset covering Node.js crypto, WebCrypto subtle, CryptoJS, node-forge, noble-curves, and tweetnacl."
+description: "Unified JavaScript and TypeScript ruleset covering Node.js crypto, WebCrypto subtle, CryptoJS, node-forge, noble-curves, tweetnacl, and CodeQL ECDAT Layer 3 API patterns."
 
 libraries:
   # =========================================================================
@@ -10,6 +10,8 @@ libraries:
     imports:
       - "crypto"
       - "node:crypto"
+      - "tls"
+      - "https"
     call_patterns:
       # Symmetric Encryption & Decryption
       - call: "createCipheriv"
@@ -57,6 +59,29 @@ libraries:
       - call: "generateKeySync"
         operation: "symmetric_key_generation"
 
+      # CodeQL Ingested Key Deserialization
+      - call: "createPrivateKey"
+        operation: "load_private_key"
+        algo_id: ALGO-ASYMMETRIC-KEY
+        primitive: "key_management"
+
+      - call: "createPublicKey"
+        operation: "load_public_key"
+        algo_id: ALGO-ASYMMETRIC-KEY
+        primitive: "key_management"
+
+      # CodeQL Ingested TLS Context & Server Creation
+      - call: "createSecureContext"
+        operation: "tls_session_init"
+        primitive: "secure_transport"
+        extract_args:
+          minVersion: "protocol"
+          ciphers: "cipher_suite"
+
+      - call: "createServer"
+        operation: "tls_server_init"
+        primitive: "secure_transport"
+
       # Cryptographic Hashes & MACs
       - call: "createHash"
         operation: "digest_computation"
@@ -74,7 +99,7 @@ libraries:
           - "md5"
           - "sha1"
 
-      # Digital Signatures & Verification
+      # Digital Signatures & Verification (CodeQL Call Targets)
       - call: "createSign"
         operation: "signature_generation"
         extract_args:
