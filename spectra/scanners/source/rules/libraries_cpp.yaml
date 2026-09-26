@@ -1,10 +1,10 @@
 version: "2.0"
 language: cpp
-description: "Comprehensive C/C++ cryptographic rules covering OpenSSL (EVP, RSA, EC), BoringSSL, libsodium, and OQS (PQC)."
+description: "Comprehensive C/C++ cryptographic rules covering OpenSSL (EVP, RSA, EC, X509, SSL/TLS, PKCS), BoringSSL, libsodium (box, sign, aead, generichash), and OQS (PQC)."
 
 libraries:
   # =========================================================================
-  # 1. OPENSSL & BORINGSSL (EVP API & Low-Level Primitives)
+  # 1. OPENSSL & BORINGSSL (EVP API, Low-Level Primitives, PKCS, X.509, SSL/TLS)
   # =========================================================================
   - name: openssl
     headers:
@@ -16,6 +16,8 @@ libraries:
       - "openssl/md5.h"
       - "openssl/hmac.h"
       - "openssl/ssl.h"
+      - "openssl/x509.h"
+      - "openssl/pkcs12.h"
       - "openssl/rand.h"
     call_patterns:
       # Symmetric Ciphers (EVP)
@@ -100,6 +102,44 @@ libraries:
           NID_X25519: "X25519"
           NID_ED25519: "Ed25519"
 
+      # CodeQL isCryptoApi Target: X.509 Certificate Processing
+      - call: "d2i_X509"
+        algo_id: ALGO-X509
+        primitive: "certificate"
+        operation: "certificate_parsing"
+      - call: "PEM_read_X509"
+        algo_id: ALGO-X509
+        primitive: "certificate"
+        operation: "certificate_parsing"
+      - call: "X509_verify"
+        algo_id: ALGO-X509
+        primitive: "certificate"
+        operation: "certificate_verification"
+
+      # CodeQL isCryptoApi Target: TLS/SSL Sessions & Contexts
+      - call: "TLS_client_method"
+        primitive: "secure_transport"
+        operation: "tls_session_init"
+      - call: "SSL_CTX_new"
+        primitive: "secure_transport"
+        operation: "tls_context_init"
+      - call: "SSLv3_client_method"
+        primitive: "secure_transport"
+        flag_insecure: true
+        issue: "Deprecated SSLv3 transport protocol invoked"
+      - call: "TLSv1_client_method"
+        primitive: "secure_transport"
+        flag_insecure: true
+        issue: "Deprecated TLSv1.0 transport protocol invoked"
+
+      # CodeQL isCryptoApi Target: PKCS Derivation & KeyStore Packaging
+      - call: "PKCS5_PBKDF2_HMAC"
+        primitive: "key_derivation"
+        operation: "pbkdf2_derivation"
+      - call: "PKCS12_parse"
+        primitive: "key_management"
+        operation: "keystore_parse"
+
       # Randomness
       - call: "RAND_bytes"
         algo_id: ALGO-CSPRNG
@@ -130,6 +170,15 @@ libraries:
       - call: "crypto_kx_keypair"
         algo_id: ALGO-X25519
         primitive: "key_exchange"
+      # CodeQL isCryptoApi Target: Extended AEAD & GenericHash
+      - call: "crypto_aead_chacha20poly1305_encrypt"
+        algo_id: ALGO-CHACHA20-POLY1305
+        primitive: "symmetric_cipher"
+        operation: "aead_encryption"
+      - call: "crypto_generichash"
+        algo_id: ALGO-BLAKE2B
+        primitive: "hash"
+        operation: "digest_computation"
       - call: "randombytes_buf"
         algo_id: ALGO-CSPRNG
         primitive: "prng"
