@@ -1,15 +1,28 @@
-version: "1.0"
+version: "2.0"
 language: jvm
+description: "Unified JCA/JCE and Bouncy Castle ruleset capturing factory getInstance, EC parameter specs, KeyStores, and CodeQL isCryptoType operations."
 
 libraries:
+  # =========================================================================
+  # 1. JAVA CRYPTOGRAPHY ARCHITECTURE (JCA / JCE)
+  # =========================================================================
   - name: java_security_jca
     imports:
       - javax.crypto.Cipher
       - javax.crypto.KeyGenerator
+      - javax.crypto.Mac
+      - javax.crypto.SecretKeyFactory
+      - javax.crypto.KeyAgreement
       - java.security.KeyPairGenerator
       - java.security.MessageDigest
       - java.security.Signature
+      - java.security.KeyStore
+      - java.security.SecureRandom
+      - java.security.cert.CertificateFactory
+      - java.security.spec.ECGenParameterSpec
+      - javax.net.ssl.SSLContext
     call_patterns:
+      # --- Cipher Transformations & Invocations ---
       - class: "Cipher"
         method: "getInstance"
         extract_transformation:
@@ -18,18 +31,111 @@ libraries:
           - "ECB"
           - "NONE"
 
-      - class: "KeyGenerator"
-        method: "getInstance"
-        extract_algorithm:
-          position_0: "algorithm"
+      - class: "Cipher"
+        method: "init"
+        operation: "cipher_init"
 
+      - class: "Cipher"
+        method: "doFinal"
+        operation: "cipher_execute"
+
+      - class: "Cipher"
+        method: "update"
+        operation: "cipher_stream_update"
+
+      # --- Asymmetric Key Pair Generation & Key Sizes ---
       - class: "KeyPairGenerator"
         method: "getInstance"
         extract_algorithm:
           position_0: "algorithm"
 
+      - class: "KeyPairGenerator"
+        method: "initialize"
+        extract_args:
+          position_0: "key_size_or_spec"
+        flag_insecure_if:
+          key_size_less_than: 2048
+
+      # --- Elliptic Curve Parameter Specifications ---
+      - class: "ECGenParameterSpec"
+        method: "<init>"
+        algo_id: ALGO-ECC
+        primitive: "public_key"
+        extract_args:
+          position_0: "curve"
+        curve_mappings:
+          secp256r1: "NIST-P256"
+          prime256v1: "NIST-P256"
+          secp384r1: "NIST-P384"
+          secp521r1: "NIST-P521"
+          secp256k1: "secp256k1"
+          X25519: "X25519"
+          Ed25519: "Ed25519"
+        flag_insecure_curves:
+          - "secp192r1"
+          - "secp192k1"
+          - "secp160r1"
+
+      # --- Symmetric Key Generators ---
+      - class: "KeyGenerator"
+        method: "getInstance"
+        extract_algorithm:
+          position_0: "algorithm"
+
+      - class: "KeyGenerator"
+        method: "init"
+        extract_args:
+          position_0: "key_size"
+
+      - class: "SecretKeyFactory"
+        method: "getInstance"
+        extract_algorithm:
+          position_0: "algorithm"
+
+      - class: "KeyAgreement"
+        method: "getInstance"
+        primitive: "key_exchange"
+        extract_algorithm:
+          position_0: "algorithm"
+
+      # --- Message Authentication Codes (MAC) ---
+      - class: "Mac"
+        method: "getInstance"
+        primitive: "mac"
+        extract_algorithm:
+          position_0: "algorithm"
+        flag_insecure_algorithms:
+          - "HmacMD5"
+          - "HmacSHA1"
+
+      - class: "Mac"
+        method: "doFinal"
+        operation: "mac_generation"
+
+      # --- Digital Signatures (CodeQL signature APIs) ---
+      - class: "Signature"
+        method: "getInstance"
+        primitive: "signature"
+        extract_algorithm:
+          position_0: "algorithm"
+        flag_insecure_algorithms:
+          - "MD5withRSA"
+          - "SHA1withRSA"
+          - "SHA1withDSA"
+          - "SHA1withECDSA"
+
+      - class: "Signature"
+        method: "sign"
+        operation: "signature_generation"
+
+      - class: "Signature"
+        method: "verify"
+        operation: "signature_verification"
+
+      # --- Cryptographic Hash Functions ---
       - class: "MessageDigest"
         method: "getInstance"
+        primitive: "hash"
         extract_algorithm:
           position_0: "algorithm"
         flag_insecure_algorithms:
@@ -37,22 +143,108 @@ libraries:
           - "SHA-1"
           - "SHA1"
 
-      - class: "Signature"
+      - class: "MessageDigest"
+        method: "digest"
+        operation: "digest_computation"
+
+      # --- KeyStores & Certificate Processing ---
+      - class: "KeyStore"
         method: "getInstance"
+        operation: "keystore_access"
+        extract_algorithm:
+          position_0: "type"
+        flag_insecure_algorithms:
+          - "JKS" # Insecure legacy format compared to PKCS12
+
+      - class: "KeyStore"
+        method: "load"
+        operation: "keystore_load"
+
+      - class: "CertificateFactory"
+        method: "getInstance"
+        operation: "certificate_parsing"
+        extract_algorithm:
+          position_0: "type"
+
+      - class: "CertificateFactory"
+        method: "generateCertificate"
+        operation: "certificate_load"
+
+      # --- TLS Handshakes & SSLContext ---
+      - class: "SSLContext"
+        method: "getInstance"
+        operation: "tls_session_init"
+        extract_algorithm:
+          position_0: "protocol"
+        flag_insecure_algorithms:
+          - "SSL"
+          - "SSLv2"
+          - "SSLv3"
+          - "TLS"
+          - "TLSv1"
+          - "TLSv1.1"
+
+      # --- PRNG (SecureRandom vs Random) ---
+      - class: "SecureRandom"
+        method: "<init>"
+        algo_id: ALGO-CSPRNG
+        primitive: "prng"
+
+      - class: "SecureRandom"
+        method: "getInstance"
+        algo_id: ALGO-CSPRNG
+        primitive: "prng"
         extract_algorithm:
           position_0: "algorithm"
 
+  # =========================================================================
+  # 2. BOUNCY CASTLE (Classical, ASN.1 & Post-Quantum Cryptography)
+  # =========================================================================
   - name: bouncy_castle
     imports:
       - org.bouncycastle.crypto
       - org.bouncycastle.jce.provider.BouncyCastleProvider
       - org.bouncycastle.pqc.crypto
+      - org.bouncycastle.pqc.jcajce.provider
+      - org.bouncycastle.asn1.x509
     call_patterns:
       - class: "BouncyCastleProvider"
-        method: "PROVIDER_NAME"
+        method: "<init>"
+        operation: "security_provider_registration"
+
+      # NIST FIPS 203 / 204 / 205 Standard PQC Instantiations
+      - class: "MLKEMKeyPairGenerator"
+        algo_id: ALGO-ML-KEM
+        primitive: "key_encapsulation"
+
       - class: "KyberKeyPairGenerator"
         algo_id: ALGO-ML-KEM
+        primitive: "key_encapsulation"
+
+      - class: "MLDSAKeyPairGenerator"
+        algo_id: ALGO-ML-DSA
+        primitive: "signature"
+
       - class: "DilithiumKeyPairGenerator"
         algo_id: ALGO-ML-DSA
+        primitive: "signature"
+
+      - class: "SLHDSAKeyPairGenerator"
+        algo_id: ALGO-SLH-DSA
+        primitive: "signature"
+
       - class: "SPHINCSPlusKeyPairGenerator"
         algo_id: ALGO-SLH-DSA
+        primitive: "signature"
+
+      - class: "FalconKeyPairGenerator"
+        algo_id: ALGO-FALCON
+        primitive: "signature"
+
+      - class: "BIKEKeyPairGenerator"
+        algo_id: ALGO-BIKE
+        primitive: "key_encapsulation"
+
+      - class: "HQCKeyPairGenerator"
+        algo_id: ALGO-HQC
+        primitive: "key_encapsulation"
