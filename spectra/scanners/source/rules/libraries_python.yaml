@@ -21,6 +21,8 @@ libraries:
       - cryptography.hazmat.primitives.asymmetric.padding
       - cryptography.hazmat.primitives.hashes
       - cryptography.hazmat.primitives.kdf
+      - cryptography.hazmat.primitives.kdf.hkdf
+      - cryptography.hazmat.primitives.kdf.pbkdf2
       - cryptography.hazmat.primitives.serialization
       - cryptography.x509
     call_patterns:
@@ -72,6 +74,17 @@ libraries:
         extract_args:
           key_size: "key_size"
         flag_insecure: true
+
+      # Key Derivation Functions (KDF)
+      - call: "HKDF"
+        algo_id: ALGO-HKDF
+        primitive: "key_derivation"
+        operation: "key_derivation"
+
+      - call: "PBKDF2HMAC"
+        algo_id: ALGO-PBKDF2
+        primitive: "key_derivation"
+        operation: "pbkdf2_derivation"
 
       # CodeQL ECDAT Ingested API Calls
       - call: "encrypt"
@@ -331,7 +344,57 @@ libraries:
           - "hashlib.sha1"
 
   # =========================================================================
-  # 6. M2CRYPTO (OpenSSL wrapper)
+  # 6. JWT, JOSE, BCRYPT, ARGON2 & PARAMIKO (from python.json)
+  # =========================================================================
+  - name: python_extended_ecosystem
+    imports:
+      - jwt
+      - jose
+      - jwcrypto
+      - bcrypt
+      - argon2
+      - paramiko
+    call_patterns:
+      - call: "jwt.encode"
+        algo_id: ALGO-JWT
+        primitive: "signature"
+        operation: "token_generation"
+      - call: "jwt.decode"
+        algo_id: ALGO-JWT
+        primitive: "signature"
+        operation: "token_verification"
+      - call: "bcrypt.hashpw"
+        algo_id: ALGO-BCRYPT
+        primitive: "key_derivation"
+        operation: "password_hash"
+      - call: "bcrypt.checkpw"
+        algo_id: ALGO-BCRYPT
+        primitive: "key_derivation"
+        operation: "password_verify"
+      - call: "argon2.PasswordHasher"
+        algo_id: ALGO-ARGON2
+        primitive: "key_derivation"
+        operation: "password_hash"
+      - call: "paramiko.RSAKey.generate"
+        algo_id: ALGO-RSA
+        primitive: "public_key"
+        operation: "keypair_generation"
+        extract_args:
+          position_0: "bits"
+        flag_insecure_if:
+          key_size_less_than: 2048
+      - call: "paramiko.ECDSAKey.generate"
+        algo_id: ALGO-ECDSA
+        primitive: "public_key"
+        operation: "keypair_generation"
+      - call: "paramiko.Ed25519Key.generate"
+        algo_id: ALGO-ED25519
+        primitive: "signature"
+        curve: "Ed25519"
+        operation: "keypair_generation"
+
+  # =========================================================================
+  # 7. M2CRYPTO (OpenSSL wrapper)
   # =========================================================================
   - name: m2crypto
     imports:
@@ -359,7 +422,7 @@ libraries:
         operation: "load_pem_private_key"
 
   # =========================================================================
-  # 7. PYTHON-RSA
+  # 8. PYTHON-RSA
   # =========================================================================
   - name: rsa
     imports:
@@ -383,7 +446,7 @@ libraries:
         operation: "signature_verification"
 
   # =========================================================================
-  # 8. PYTHON STANDARD SSL & SECRETS
+  # 9. PYTHON STANDARD SSL & SECRETS
   # =========================================================================
   - name: ssl
     imports:
@@ -411,6 +474,8 @@ libraries:
       - call: "token_bytes"
         algo_id: ALGO-CSPRNG
       - call: "token_hex"
+        algo_id: ALGO-CSPRNG
+      - call: "token_urlsafe"
         algo_id: ALGO-CSPRNG
       - call: "random.random"
         flag_insecure: true

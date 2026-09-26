@@ -72,6 +72,11 @@ RUST_RANDOM_REGEX = re.compile(
     r'(?:=\s*|\breturn\s+)(?:rand::)?(?:rngs::)?(?P<type>OsRng|thread_rng\(\)|thread_rng)\b'
 )
 
+# 11. Extended Rust Ecosystem: hkdf, bcrypt, argon2, x509_parser, webpki, openssl
+RUST_EXT_ECOSYSTEM_REGEX = re.compile(
+    r'\b(?P<crate>Hkdf|bcrypt|Argon2|x509_parser|EndEntityCert|openssl::(?:symm|rsa|ssl))::(?P<method>[a-zA-Z0-9_]+)\b'
+)
+
 
 class RustScanner(BaseSourceScanner):
     """Scanner for Rust source files (.rs)."""
@@ -159,6 +164,68 @@ class RustScanner(BaseSourceScanner):
             line_idx = self._offset_to_line(content, match.start())
             findings.append(self._process_random(file_path, line_idx, match.start(), rng_type))
 
+        # 11. Extended Rust Ecosystem
+        for match in RUST_EXT_ECOSYSTEM_REGEX.finditer(content):
+            crate = match.group("crate")
+            method = match.group("method")
+            line_idx = self._offset_to_line(content, match.start())
+            col = match.start()
+            snippet = self.extract_snippet(file_path, line_idx)
+
+            crate_lower = crate.lower()
+            if "hkdf" in crate_lower:
+                algo = "HKDF"
+                prim = "key_derivation"
+                op = "key_derivation"
+                q_safe = True
+            elif "bcrypt" in crate_lower:
+                algo = "bcrypt"
+                prim = "key_derivation"
+                op = "password_hash"
+                q_safe = False
+            elif "argon2" in crate_lower:
+                algo = "Argon2"
+                prim = "key_derivation"
+                op = "password_hash"
+                q_safe = True
+            elif "x509" in crate_lower or "endentitycert" in crate_lower:
+                algo = "X.509"
+                prim = "certificate"
+                op = "certificate_parsing"
+                q_safe = False
+            elif "openssl::rsa" in crate_lower:
+                algo = "RSA"
+                prim = "public_key"
+                op = "keypair_generation"
+                q_safe = False
+            elif "openssl::ssl" in crate_lower:
+                algo = "TLS"
+                prim = "secure_transport"
+                op = "tls_context_init"
+                q_safe = False
+            else:
+                algo = "AES"
+                prim = "symmetric_cipher"
+                op = "symmetric_cipher_init"
+                q_safe = False
+
+            findings.append(SourceFinding(
+                source_domain="source_code",
+                language="rust",
+                file_path=str(file_path.resolve()),
+                line_number=line_idx,
+                column_number=col,
+                code_snippet=snippet,
+                primitive=prim,
+                algorithm=algo,
+                operation=op,
+                quantum_safe=q_safe,
+                nist_status="approved",
+                security_findings=[],
+                raw_metadata={"rust_ecosystem_call": f"{crate}::{method}"}
+            ))
+
+        
         return findings
 
     def _process_cipher(self, file_path: Path, line_idx: int, col: int, cls: str, method: str) -> SourceFinding:

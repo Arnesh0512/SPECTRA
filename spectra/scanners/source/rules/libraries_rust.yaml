@@ -1,6 +1,6 @@
 version: "2.0"
 language: rust
-description: "Comprehensive Rust cryptographic rules covering ring, RustCrypto crates (aes-gcm, rsa, ecc), rustls, dalek crates, and CodeQL Layer 3 targets."
+description: "Comprehensive Rust cryptographic rules covering ring, RustCrypto crates (aes-gcm, rsa, ecc), rustls, dalek, hkdf, x509_parser, webpki, openssl, and pqcrypto."
 
 libraries:
   # =========================================================================
@@ -75,7 +75,7 @@ libraries:
         operation: "digest_computation"
 
   # =========================================================================
-  # 2. RUSTCRYPTO (aes-gcm, rsa, curves, sha2)
+  # 2. RUSTCRYPTO, DALEK & KDF CRATES
   # =========================================================================
   - name: rustcrypto
     imports:
@@ -84,9 +84,14 @@ libraries:
       - "p256"
       - "p384"
       - "k256"
+      - "ed25519_dalek"
+      - "x25519_dalek"
       - "sha2"
       - "md5"
       - "sha1"
+      - "hkdf"
+      - "bcrypt"
+      - "argon2"
     call_patterns:
       - call: "Aes256Gcm::new"
         algo_id: ALGO-AES
@@ -107,7 +112,7 @@ libraries:
         flag_insecure_if:
           key_size_less_than: 2048
 
-      # CodeQL isCryptoApi Target: PKCS#8 Deserialization
+      # PKCS#8 Deserialization
       - call: "from_pkcs8_pem"
         primitive: "key_management"
         operation: "load_private_key"
@@ -135,6 +140,33 @@ libraries:
         curve: "secp256k1"
         operation: "keypair_generation"
 
+      - call: "SigningKey::generate"
+        algo_id: ALGO-ED25519
+        primitive: "signature"
+        curve: "Ed25519"
+        operation: "keypair_generation"
+
+      # KDF & Password Hashes
+      - call: "Hkdf::extract"
+        algo_id: ALGO-HKDF
+        primitive: "key_derivation"
+        operation: "key_derivation"
+
+      - call: "bcrypt::hash"
+        algo_id: ALGO-BCRYPT
+        primitive: "key_derivation"
+        operation: "password_hash"
+
+      - call: "bcrypt::verify"
+        algo_id: ALGO-BCRYPT
+        primitive: "key_derivation"
+        operation: "password_verify"
+
+      - call: "Argon2::hash_password"
+        algo_id: ALGO-ARGON2
+        primitive: "key_derivation"
+        operation: "password_hash"
+
       # Insecure Legacy Ciphers & Hashes
       - call: "md5::Md5::new"
         algo_id: ALGO-MD5
@@ -149,14 +181,15 @@ libraries:
         operation: "digest_computation"
 
   # =========================================================================
-  # 3. RUSTLS & TRANSPORT SECURITY
+  # 3. CERTIFICATES & TLS (rustls, x509_parser, webpki)
   # =========================================================================
-  - name: rustls
+  - name: rustls_and_certs
     imports:
       - "rustls"
       - "tokio_rustls"
+      - "x509_parser"
+      - "webpki"
     call_patterns:
-      # CodeQL isCryptoApi Target: with_safe_defaults & bind
       - call: "with_safe_defaults"
         primitive: "secure_transport"
         operation: "tls_configuration"
@@ -165,8 +198,43 @@ libraries:
         primitive: "secure_transport"
         operation: "tls_server_bind"
 
+      - call: "parse_x509_certificate"
+        algo_id: ALGO-X509
+        primitive: "certificate"
+        operation: "certificate_parsing"
+
+      - call: "EndEntityCert::try_from"
+        algo_id: ALGO-X509
+        primitive: "certificate"
+        operation: "certificate_parsing"
+
   # =========================================================================
-  # 4. POST-QUANTUM CRYPTOGRAPHY (pqcrypto)
+  # 4. RUST OPENSSL BINDINGS (openssl, openssl-sys)
+  # =========================================================================
+  - name: rust_openssl
+    imports:
+      - "openssl::symm"
+      - "openssl::rsa"
+      - "openssl::ssl"
+      - "openssl::hash"
+    call_patterns:
+      - call: "symm::Cipher::aes_256_gcm"
+        algo_id: ALGO-AES
+        primitive: "symmetric_cipher"
+        mode: "GCM"
+
+      - call: "rsa::Rsa::generate"
+        algo_id: ALGO-RSA
+        primitive: "public_key"
+        flag_insecure_if:
+          key_size_less_than: 2048
+
+      - call: "ssl::SslContext::builder"
+        primitive: "secure_transport"
+        operation: "tls_context_init"
+
+  # =========================================================================
+  # 5. POST-QUANTUM CRYPTOGRAPHY (pqcrypto)
   # =========================================================================
   - name: pqcrypto
     imports:

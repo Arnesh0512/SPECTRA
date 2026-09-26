@@ -1,6 +1,6 @@
 version: "2.0"
 language: go
-description: "Comprehensive Go cryptographic rules covering crypto/* standard library, golang.org/x/crypto, PQC modules, and CodeQL Layer 3 crypto extraction targets."
+description: "Comprehensive Go cryptographic rules covering crypto/* standard library, golang.org/x/crypto, Google Tink, CIRCL, and JWT/JWX."
 
 libraries:
   # =========================================================================
@@ -130,7 +130,7 @@ libraries:
         primitive: "public_key"
         curve: "NIST-P521"
 
-      # --- CodeQL Target: Digital Signatures & Verifications ---
+      # --- Digital Signatures & Verifications ---
       - call: "rsa.SignPKCS1v15"
         algo_id: ALGO-RSA
         primitive: "signature"
@@ -173,7 +173,7 @@ libraries:
         primitive: "signature"
         operation: "signature_verification"
 
-      # --- CodeQL Target: X.509 Certificates ---
+      # --- X.509 Certificates & Key Material ---
       - call: "x509.ParseCertificate"
         algo_id: ALGO-X509
         primitive: "certificate"
@@ -184,15 +184,34 @@ libraries:
         primitive: "certificate"
         operation: "certificate_parsing"
 
+      - call: "x509.ParsePKIXPublicKey"
+        algo_id: ALGO-ASYMMETRIC-KEY
+        primitive: "key_management"
+        operation: "load_public_key"
+
+      - call: "x509.ParsePKCS1PrivateKey"
+        algo_id: ALGO-RSA
+        primitive: "key_management"
+        operation: "load_private_key"
+
+      - call: "x509.ParsePKCS8PrivateKey"
+        algo_id: ALGO-ASYMMETRIC-KEY
+        primitive: "key_management"
+        operation: "load_private_key"
+
       - call: "tls.LoadX509KeyPair"
         algo_id: ALGO-X509
         primitive: "key_management"
         operation: "load_keypair"
 
-      # --- CodeQL Target: TLS Listeners & Handshakes ---
+      # --- TLS Handshake, Listeners & Dialers ---
       - call: "tls.Listen"
         primitive: "secure_transport"
         operation: "tls_server_listen"
+
+      - call: "tls.Dial"
+        primitive: "secure_transport"
+        operation: "tls_client_dial"
 
       - call: "tls.Server"
         primitive: "secure_transport"
@@ -237,7 +256,7 @@ libraries:
         operation: "secure_random"
 
   # =========================================================================
-  # 2. EXTENDED & THIRD-PARTY CRYPTO (golang.org/x/crypto)
+  # 2. EXTENDED & THIRD-PARTY CRYPTO (golang.org/x/crypto, Tink, PKCS#8)
   # =========================================================================
   - name: golang_x_crypto
     imports:
@@ -245,7 +264,14 @@ libraries:
       - "golang.org/x/crypto/nacl/secretbox"
       - "golang.org/x/crypto/curve25519"
       - "golang.org/x/crypto/sha3"
+      - "golang.org/x/crypto/blake2b"
       - "golang.org/x/crypto/argon2"
+      - "golang.org/x/crypto/bcrypt"
+      - "golang.org/x/crypto/scrypt"
+      - "golang.org/x/crypto/hkdf"
+      - "github.com/google/tink/go/aead"
+      - "github.com/google/tink/go/keyset"
+      - "github.com/youmark/pkcs8"
     call_patterns:
       - call: "chacha20poly1305.New"
         algo_id: ALGO-CHACHA20-POLY1305
@@ -273,13 +299,81 @@ libraries:
         primitive: "hash"
         operation: "digest_computation"
 
+      - call: "blake2b.New256"
+        algo_id: ALGO-BLAKE2B
+        primitive: "hash"
+        operation: "digest_computation"
+
       - call: "argon2.IDKey"
         algo_id: ALGO-ARGON2
         primitive: "key_derivation"
         operation: "key_derivation"
 
+      - call: "bcrypt.GenerateFromPassword"
+        algo_id: ALGO-BCRYPT
+        primitive: "key_derivation"
+        operation: "password_hash"
+
+      - call: "bcrypt.CompareHashAndPassword"
+        algo_id: ALGO-BCRYPT
+        primitive: "key_derivation"
+        operation: "password_verify"
+
+      - call: "scrypt.Key"
+        algo_id: ALGO-SCRYPT
+        primitive: "key_derivation"
+        operation: "key_derivation"
+
+      - call: "hkdf.New"
+        algo_id: ALGO-HKDF
+        primitive: "key_derivation"
+        operation: "key_derivation"
+
+      - call: "aead.New"
+        primitive: "symmetric_cipher"
+        operation: "aead_init"
+
+      - call: "keyset.NewHandle"
+        primitive: "key_management"
+        operation: "load_keyset"
+
+      - call: "pkcs8.ParsePKCS8PrivateKey"
+        algo_id: ALGO-ASYMMETRIC-KEY
+        primitive: "key_management"
+        operation: "load_private_key"
+
   # =========================================================================
-  # 3. POST-QUANTUM CRYPTOGRAPHY (circl, etc.)
+  # 3. JWT & JOSE (golang-jwt/jwt, lestrrat-go/jwx)
+  # =========================================================================
+  - name: go_jwt_jwx
+    imports:
+      - "github.com/golang-jwt/jwt"
+      - "github.com/lestrrat-go/jwx/v2/jwt"
+      - "github.com/lestrrat-go/jwx/v2/jws"
+      - "github.com/lestrrat-go/jwx/v2/jwk"
+    call_patterns:
+      - call: "jwt.Parse"
+        algo_id: ALGO-JWT
+        primitive: "signature"
+        operation: "token_verification"
+
+      - call: "jwt.NewWithClaims"
+        algo_id: ALGO-JWT
+        primitive: "signature"
+        operation: "token_generation"
+
+      - call: "jws.Sign"
+        algo_id: ALGO-JWT
+        primitive: "signature"
+        operation: "token_generation"
+
+      - call: "jws.Verify"
+        algo_id: ALGO-JWT
+        primitive: "signature"
+        operation: "token_verification"
+
+  # =========================================================================
+  # 4. POST-QUANTUM CRYPTOGRAPHY (circl)
   # =========================================================================
   - name: cloudflare_circl
     imports:

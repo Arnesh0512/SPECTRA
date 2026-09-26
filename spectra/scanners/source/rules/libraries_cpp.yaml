@@ -1,10 +1,10 @@
 version: "2.0"
 language: cpp
-description: "Comprehensive C/C++ cryptographic rules covering OpenSSL (EVP, RSA, EC, X509, SSL/TLS, PKCS), BoringSSL, libsodium (box, sign, aead, generichash), and OQS (PQC)."
+description: "Comprehensive C/C++ cryptographic rules covering OpenSSL, BoringSSL, LibreSSL, libsodium, mbedtls, wolfSSL, Botan, Crypto++, and OQS."
 
 libraries:
   # =========================================================================
-  # 1. OPENSSL & BORINGSSL (EVP API, Low-Level Primitives, PKCS, X.509, SSL/TLS)
+  # 1. OPENSSL, BORINGSSL & LIBRESSL
   # =========================================================================
   - name: openssl
     headers:
@@ -19,6 +19,7 @@ libraries:
       - "openssl/x509.h"
       - "openssl/pkcs12.h"
       - "openssl/rand.h"
+      - "openssl/bio.h"
     call_patterns:
       # Symmetric Ciphers (EVP)
       - call: "EVP_aes_256_gcm"
@@ -102,7 +103,7 @@ libraries:
           NID_X25519: "X25519"
           NID_ED25519: "Ed25519"
 
-      # CodeQL isCryptoApi Target: X.509 Certificate Processing
+      # X.509 Certificate Processing
       - call: "d2i_X509"
         algo_id: ALGO-X509
         primitive: "certificate"
@@ -116,7 +117,7 @@ libraries:
         primitive: "certificate"
         operation: "certificate_verification"
 
-      # CodeQL isCryptoApi Target: TLS/SSL Sessions & Contexts
+      # TLS/SSL Sessions & Contexts
       - call: "TLS_client_method"
         primitive: "secure_transport"
         operation: "tls_session_init"
@@ -132,13 +133,22 @@ libraries:
         flag_insecure: true
         issue: "Deprecated TLSv1.0 transport protocol invoked"
 
-      # CodeQL isCryptoApi Target: PKCS Derivation & KeyStore Packaging
+      # PKCS Derivation & KeyStore Packaging
       - call: "PKCS5_PBKDF2_HMAC"
+        algo_id: ALGO-PBKDF2
         primitive: "key_derivation"
         operation: "pbkdf2_derivation"
       - call: "PKCS12_parse"
         primitive: "key_management"
         operation: "keystore_parse"
+
+      # BIO Abstraction (from cpp.json)
+      - call: "BIO_new_ssl"
+        primitive: "secure_transport"
+        operation: "tls_stream_init"
+      - call: "BIO_f_ssl"
+        primitive: "secure_transport"
+        operation: "tls_filter_init"
 
       # Randomness
       - call: "RAND_bytes"
@@ -170,7 +180,6 @@ libraries:
       - call: "crypto_kx_keypair"
         algo_id: ALGO-X25519
         primitive: "key_exchange"
-      # CodeQL isCryptoApi Target: Extended AEAD & GenericHash
       - call: "crypto_aead_chacha20poly1305_encrypt"
         algo_id: ALGO-CHACHA20-POLY1305
         primitive: "symmetric_cipher"
@@ -184,7 +193,79 @@ libraries:
         primitive: "prng"
 
   # =========================================================================
-  # 3. OPEN QUANTUM SAFE (OQS) & OPENSSL 3.x PQC PROVIDER
+  # 3. MBEDTLS (from cpp.json & crypto_capable_dependencies.json)
+  # =========================================================================
+  - name: mbedtls
+    headers:
+      - "mbedtls/ssl.h"
+      - "mbedtls/aes.h"
+      - "mbedtls/cipher.h"
+      - "mbedtls/md.h"
+      - "mbedtls/entropy.h"
+    call_patterns:
+      - call: "mbedtls_aes_crypt_cbc"
+        algo_id: ALGO-AES
+        primitive: "symmetric_cipher"
+        mode: "CBC"
+      - call: "mbedtls_aes_crypt_ecb"
+        algo_id: ALGO-AES
+        primitive: "symmetric_cipher"
+        mode: "ECB"
+        flag_insecure: true
+      - call: "mbedtls_sha256"
+        algo_id: ALGO-SHA2-256
+        primitive: "hash"
+      - call: "mbedtls_ssl_init"
+        primitive: "secure_transport"
+        operation: "tls_session_init"
+
+  # =========================================================================
+  # 4. WOLFSSL (from cpp.json & crypto_capable_dependencies.json)
+  # =========================================================================
+  - name: wolfssl
+    headers:
+      - "wolfssl/ssl.h"
+      - "wolfssl/options.h"
+      - "wolfssl/wolfcrypt/aes.h"
+    call_patterns:
+      - call: "wolfSSL_new"
+        primitive: "secure_transport"
+        operation: "tls_session_init"
+      - call: "wc_AesGcmEncrypt"
+        algo_id: ALGO-AES
+        primitive: "symmetric_cipher"
+        mode: "GCM"
+
+  # =========================================================================
+  # 5. BOTAN & CRYPTO++ (from cpp.json & crypto_capable_dependencies.json)
+  # =========================================================================
+  - name: botan
+    headers:
+      - "botan/botan.h"
+      - "botan/auto_rng.h"
+      - "botan/cipher_mode.h"
+    call_patterns:
+      - call: "Botan::Cipher_Mode::create"
+        primitive: "symmetric_cipher"
+      - call: "Botan::AutoSeeded_RNG"
+        algo_id: ALGO-CSPRNG
+        primitive: "prng"
+
+  - name: cryptopp
+    headers:
+      - "cryptopp/cryptlib.h"
+      - "cryptopp/aes.h"
+      - "cryptopp/rsa.h"
+    call_patterns:
+      - call: "CryptoPP::AES::Encryption"
+        algo_id: ALGO-AES
+        primitive: "symmetric_cipher"
+      - call: "CryptoPP::RSA::PrivateKey"
+        algo_id: ALGO-RSA
+        primitive: "public_key"
+
+  # =========================================================================
+  # 6. OPEN QUANTUM SAFE (liboqs)
   # =========================================================================
   - name: liboqs
     headers:
