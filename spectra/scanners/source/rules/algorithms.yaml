@@ -11,23 +11,23 @@ algorithms:
     weak_modes:
       - ECB
 
-  - id: ALGO-DES
-    name: DES
-    primitive: symmetric_cipher
-    quantum_safe: false
-    nist_status: deprecated_classical
-    patterns:
-      - '(?i)\b(DES|DESede)\b'
-    weak_modes:
-      - ALL
-
   - id: ALGO-3DES
     name: 3DES
     primitive: symmetric_cipher
     quantum_safe: false
     nist_status: deprecated_classical
     patterns:
-      - '(?i)\b(3DES|DES3|TripleDES)\b'
+      - '(?i)\b(3DES|DES3|DESede|TripleDES)\b'
+    weak_modes:
+      - ALL
+
+  - id: ALGO-DES
+    name: DES
+    primitive: symmetric_cipher
+    quantum_safe: false
+    nist_status: deprecated_classical
+    patterns:
+      - '(?i)\bDES\b'
     weak_modes:
       - ALL
 
