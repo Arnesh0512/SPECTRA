@@ -2,8 +2,8 @@
 spectra.scanners.source.cpp_scanner
 ===================================
 C and C++ source code cryptographic scanner.
-Inspects OpenSSL (EVP, RSA, EC), BoringSSL, libsodium, liboqs (PQC),
-and general C runtime cryptographic operations.
+Inspects OpenSSL (EVP, RSA, EC, X509, SSL/TLS, PKCS), BoringSSL, libsodium,
+liboqs (PQC), and CodeQL Layer 3 crypto API extraction targets.
 """
 
 from pathlib import Path
@@ -52,19 +52,31 @@ LIFECYCLE_REGEX = re.compile(
     re.IGNORECASE
 )
 
-# 7. Libsodium API calls: crypto_box_keypair(), crypto_sign_keypair(), crypto_secretbox_easy()
+# 7. CodeQL isCryptoApi Target: OpenSSL (SSL|TLS|X509|PKCS5|PKCS12)_.*
+CODEQL_EXT_C_REGEX = re.compile(
+    r'\b(?P<func>(?:SSL|TLS|X509|PKCS5|PKCS12)_[a-zA-Z0-9_]+)\s*\(',
+    re.IGNORECASE
+)
+
+# 8. Libsodium API calls (box, sign, secretbox, kx, auth)
 SODIUM_REGEX = re.compile(
     r'\b(?P<call>crypto_box_keypair|crypto_sign_keypair|crypto_secretbox_easy|crypto_kx_keypair|crypto_auth)\s*\(',
     re.IGNORECASE
 )
 
-# 8. Open Quantum Safe (liboqs): OQS_KEM_new("Kyber768"), OQS_SIG_new("Dilithium3")
+# 9. CodeQL isCryptoApi Target: Libsodium crypto_(aead|generichash).*
+SODIUM_EXT_REGEX = re.compile(
+    r'\b(?P<call>crypto_(?:aead|generichash)[a-zA-Z0-9_]*)\s*\(',
+    re.IGNORECASE
+)
+
+# 10. Open Quantum Safe (liboqs): OQS_KEM_new("Kyber768"), OQS_SIG_new("Dilithium3")
 OQS_PQC_REGEX = re.compile(
     r'\b(?P<func>OQS_KEM_new|OQS_SIG_new)\s*\(\s*["\'](?P<algo>[^"\']+)["\']\s*\)',
     re.IGNORECASE
 )
 
-# 9. CSPRNG (RAND_bytes, randombytes_buf) vs Insecure (rand, srand)
+# 11. CSPRNG (RAND_bytes, randombytes_buf) vs Insecure (rand, srand)
 PRNG_REGEX = re.compile(
     r'\b(?P<func>RAND_bytes|RAND_priv_bytes|randombytes_buf|rand|srand)\s*\(',
     re.IGNORECASE
@@ -199,7 +211,59 @@ class CPPScanner(BaseSourceScanner):
                 )
             )
 
-        # 7. Libsodium
+        # 7. CodeQL isCryptoApi Target: SSL, TLS, X509, PKCS5, PKCS12
+        for match in CODEQL_EXT_C_REGEX.finditer(content):
+            func_name = match.group("func")
+            line_idx = self._offset_to_line(content, match.start())
+            col = match.start()
+            snippet = self.extract_snippet(file_path, line_idx)
+
+            sec_findings = []
+            func_upper = func_name.upper()
+            if any(weak in func_upper for weak in ["SSLV2", "SSLV3", "TLSV1_METHOD", "TLSV1_1_METHOD"]):
+                sec_findings.append({
+                    "issue": f"Deprecated and insecure TLS/SSL protocol method invoked: {func_name}",
+                    "severity": "CRITICAL"
+                })
+
+            prim = "cryptographic_operation"
+            algo = "SystemCrypto"
+            op = "api_call"
+
+            if func_upper.startswith("X509"):
+                prim = "certificate"
+                algo = "X.509"
+                op = "certificate_parsing"
+            elif func_upper.startswith("PKCS5"):
+                prim = "key_derivation"
+                algo = "PBKDF2"
+                op = "key_derivation"
+            elif func_upper.startswith("PKCS12"):
+                prim = "key_management"
+                algo = "PKCS#12"
+                op = "keystore_load"
+            elif func_upper.startswith("SSL") or func_upper.startswith("TLS"):
+                prim = "secure_transport"
+                algo = "TLS"
+                op = "tls_session_init"
+
+            findings.append(SourceFinding(
+                source_domain="source_code",
+                language="cpp",
+                file_path=str(file_path.resolve()),
+                line_number=line_idx,
+                column_number=col,
+                code_snippet=snippet,
+                primitive=prim,
+                algorithm=algo,
+                operation=op,
+                quantum_safe=False,
+                nist_status="approved" if not sec_findings else "broken_classical",
+                security_findings=sec_findings,
+                raw_metadata={"codeql_c_api": func_name}
+            ))
+
+        # 8. Libsodium Core (box, sign, secretbox, kx, auth)
         for match in SODIUM_REGEX.finditer(content):
             call_name = match.group("call")
             line_idx = self._offset_to_line(content, match.start())
@@ -207,7 +271,39 @@ class CPPScanner(BaseSourceScanner):
             if finding:
                 findings.append(finding)
 
-        # 8. Liboqs Post-Quantum Cryptography
+        # 9. CodeQL isCryptoApi Target: Libsodium AEAD & GenericHash
+        for match in SODIUM_EXT_REGEX.finditer(content):
+            call_name = match.group("call")
+            line_idx = self._offset_to_line(content, match.start())
+            col = match.start()
+            snippet = self.extract_snippet(file_path, line_idx)
+
+            if "generichash" in call_name:
+                algo = "BLAKE2b"
+                prim = "hash"
+                op = "digest_computation"
+            else:
+                algo = "ChaCha20-Poly1305"
+                prim = "symmetric_cipher"
+                op = "aead_encryption"
+
+            findings.append(SourceFinding(
+                source_domain="source_code",
+                language="cpp",
+                file_path=str(file_path.resolve()),
+                line_number=line_idx,
+                column_number=col,
+                code_snippet=snippet,
+                primitive=prim,
+                algorithm=algo,
+                operation=op,
+                quantum_safe=True,
+                nist_status="approved",
+                security_findings=[],
+                raw_metadata={"sodium_call": call_name}
+            ))
+
+        # 10. Liboqs Post-Quantum Cryptography
         for match in OQS_PQC_REGEX.finditer(content):
             func_name = match.group("func")
             algo_param = match.group("algo")
@@ -216,7 +312,7 @@ class CPPScanner(BaseSourceScanner):
             if finding:
                 findings.append(finding)
 
-        # 9. Randomness / PRNG
+        # 11. Randomness / PRNG
         for match in PRNG_REGEX.finditer(content):
             func_name = match.group("func")
             line_idx = self._offset_to_line(content, match.start())
