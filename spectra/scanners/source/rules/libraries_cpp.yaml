@@ -1,33 +1,119 @@
-version: "1.0"
+version: "2.0"
 language: cpp
-description: "C/C++ cryptographic rules covering OpenSSL, BoringSSL, and libsodium."
+description: "Comprehensive C/C++ cryptographic rules covering OpenSSL (EVP, RSA, EC), BoringSSL, libsodium, and OQS (PQC)."
 
 libraries:
+  # =========================================================================
+  # 1. OPENSSL & BORINGSSL (EVP API & Low-Level Primitives)
+  # =========================================================================
   - name: openssl
     headers:
       - "openssl/evp.h"
       - "openssl/aes.h"
       - "openssl/rsa.h"
+      - "openssl/ec.h"
       - "openssl/sha.h"
+      - "openssl/md5.h"
+      - "openssl/hmac.h"
+      - "openssl/ssl.h"
+      - "openssl/rand.h"
     call_patterns:
+      # Symmetric Ciphers (EVP)
       - call: "EVP_aes_256_gcm"
+        algo_id: ALGO-AES
+      - call: "EVP_aes_128_gcm"
+        algo_id: ALGO-AES
+      - call: "EVP_aes_256_cbc"
         algo_id: ALGO-AES
       - call: "EVP_aes_128_cbc"
         algo_id: ALGO-AES
       - call: "EVP_aes_128_ecb"
         algo_id: ALGO-AES
         flag_insecure: true
+      - call: "EVP_aes_256_ecb"
+        algo_id: ALGO-AES
+        flag_insecure: true
       - call: "EVP_des_ede3_cbc"
         algo_id: ALGO-3DES
         flag_insecure: true
-      - call: "RSA_generate_key_ex"
-        algo_id: ALGO-RSA
+      - call: "EVP_des_cbc"
+        algo_id: ALGO-DES
+        flag_insecure: true
+      - call: "EVP_rc4"
+        algo_id: ALGO-RC4
+        flag_insecure: true
+      - call: "EVP_chacha20"
+        algo_id: ALGO-CHACHA20
+      - call: "EVP_chacha20_poly1305"
+        algo_id: ALGO-CHACHA20-POLY1305
+
+      # Hash Functions (EVP)
       - call: "EVP_sha256"
         algo_id: ALGO-SHA2-256
+      - call: "EVP_sha384"
+        algo_id: ALGO-SHA2-384
+      - call: "EVP_sha512"
+        algo_id: ALGO-SHA2-512
+      - call: "EVP_sha3_256"
+        algo_id: ALGO-SHA3-256
+      - call: "EVP_sha3_512"
+        algo_id: ALGO-SHA3-512
       - call: "EVP_md5"
         algo_id: ALGO-MD5
         flag_insecure: true
+      - call: "EVP_sha1"
+        algo_id: ALGO-SHA1
+        flag_insecure: true
 
+      # Operational Lifecycles
+      - call: "EVP_EncryptInit_ex"
+        operation: "encryption_init"
+      - call: "EVP_DecryptInit_ex"
+        operation: "decryption_init"
+      - call: "EVP_DigestSignInit"
+        operation: "signature_init"
+      - call: "EVP_DigestVerifyInit"
+        operation: "verification_init"
+      - call: "HMAC_Init_ex"
+        algo_id: ALGO-HMAC
+        operation: "mac_init"
+
+      # Asymmetric Keygen & Operations
+      - call: "RSA_generate_key_ex"
+        algo_id: ALGO-RSA
+        primitive: "public_key"
+        flag_insecure_if:
+          key_size_less_than: 2048
+      - call: "EVP_PKEY_CTX_set_rsa_keygen_bits"
+        algo_id: ALGO-RSA
+        primitive: "public_key"
+        flag_insecure_if:
+          key_size_less_than: 2048
+      - call: "EC_KEY_new_by_curve_name"
+        algo_id: ALGO-ECC
+        primitive: "public_key"
+        curve_mappings:
+          NID_X9_62_prime256v1: "NIST-P256"
+          NID_secp384r1: "NIST-P384"
+          NID_secp521r1: "NIST-P521"
+          NID_secp256k1: "secp256k1"
+          NID_X25519: "X25519"
+          NID_ED25519: "Ed25519"
+
+      # Randomness
+      - call: "RAND_bytes"
+        algo_id: ALGO-CSPRNG
+        primitive: "prng"
+      - call: "RAND_priv_bytes"
+        algo_id: ALGO-CSPRNG
+        primitive: "prng"
+      - call: "rand"
+        flag_insecure: true
+        issue: "Non-cryptographic PRNG (rand) used in C/C++ code"
+
+  # =========================================================================
+  # 2. LIBSODIUM
+  # =========================================================================
   - name: libsodium
     headers:
       - "sodium.h"
@@ -41,3 +127,34 @@ libraries:
       - call: "crypto_secretbox_easy"
         algo_id: ALGO-XSALSA20-POLY1305
         primitive: "symmetric_cipher"
+      - call: "crypto_kx_keypair"
+        algo_id: ALGO-X25519
+        primitive: "key_exchange"
+      - call: "randombytes_buf"
+        algo_id: ALGO-CSPRNG
+        primitive: "prng"
+
+  # =========================================================================
+  # 3. OPEN QUANTUM SAFE (OQS) & OPENSSL 3.x PQC PROVIDER
+  # =========================================================================
+  - name: liboqs
+    headers:
+      - "oqs/oqs.h"
+      - "oqs/kem.h"
+      - "oqs/sig.h"
+    call_patterns:
+      - call: "OQS_KEM_new"
+        primitive: "key_encapsulation"
+        curve_mappings:
+          Kyber512: "ML-KEM-512"
+          Kyber768: "ML-KEM-768"
+          Kyber1024: "ML-KEM-1024"
+          ML-KEM-768: "ML-KEM-768"
+      - call: "OQS_SIG_new"
+        primitive: "signature"
+        curve_mappings:
+          Dilithium2: "ML-DSA-44"
+          Dilithium3: "ML-DSA-65"
+          Dilithium5: "ML-DSA-87"
+          Falcon-512: "Falcon-512"
+          SPHINCS+-SHA2-128s: "SLH-DSA-128s"
