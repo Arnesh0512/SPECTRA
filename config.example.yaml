@@ -5,7 +5,7 @@ scan_targets:
   project_root: "."
   # Domain names or IP addresses for remote TLS/endpoint auditing
   domains:
-    - "example.com:443"
+    - "arnesh512.me:443"
   # Target AWS region(s) for KMS, ACM, and CloudHSM discovery
   aws_regions:
     - "us-east-1"

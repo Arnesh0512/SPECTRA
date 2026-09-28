@@ -3,7 +3,7 @@ spectra.scanners.infrastructure
 ====================================
 Coordinates discovery and risk auditing for infrastructure cryptographic assets:
 Terraform (.tf) configurations, IaC manifests (Kubernetes, CloudFormation),
-cloud environments (AWS KMS & ACM), and host hardware devices (TPM, HSM, CPU).
+cloud environments (AWS KMS & ACM, Azure Key Vault), and host hardware devices (TPM, HSM, CPU).
 """
 
 from pathlib import Path
@@ -13,13 +13,14 @@ from spectra.config import ScanConfig
 from spectra.utils.logger import log_info, log_step, log_warning
 
 from .aws_scanner import AWSFinding, AWSScanner
+from .azure_scanner import AzureFinding, AzureScanner
 from .hardware_scanner import HardwareFinding, HardwareScanner
 from .iac_scanner import IaCFinding, IaCScanner
 from .terraform_scanner import TerraformFinding, TerraformScanner
 
 
 class InfrastructureScanOrchestrator:
-    """Dispatches scanners across Terraform files, IaC manifests, hardware modules, and AWS cloud environments."""
+    """Dispatches scanners across Terraform files, IaC manifests, hardware modules, AWS, and Azure cloud environments."""
 
     def __init__(self, config: ScanConfig):
         self.config = config
@@ -32,8 +33,11 @@ class InfrastructureScanOrchestrator:
         regions = getattr(aws_cfg, "regions", ["us-east-1"]) if aws_cfg else ["us-east-1"]
         self.aws_scanner = AWSScanner(regions=regions)
 
+        # Initialize Azure scanner
+        self.azure_scanner = AzureScanner()
+
     def scan(self, target_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
-        """Scans local Terraform directories, IaC manifests, host hardware, and configured AWS regions."""
+        """Scans local Terraform directories, IaC manifests, host hardware, AWS, and Azure cloud environments."""
         all_findings: List[Dict[str, Any]] = []
         excluded = self.config.source_scanner.excluded_directories
 
@@ -78,6 +82,20 @@ class InfrastructureScanOrchestrator:
                 aws_findings: List[AWSFinding] = self.aws_scanner.scan()
                 log_info(f"Discovered {len(aws_findings)} cryptographic asset(s) in AWS.")
                 for f in aws_findings:
+                    all_findings.append(f.to_dict())
+
+        # 5. Scan Azure Cloud Resources (Key Vault Keys & Certificates if enabled)
+        azure_cfg = getattr(self.config, "azure", None)
+        azure_enabled = getattr(azure_cfg, "enabled", False) if azure_cfg else False
+
+        if azure_enabled:
+            log_step("Auditing Azure Cloud Cryptographic Assets (Key Vault Keys & Certificates)")
+            if not self.azure_scanner.is_available():
+                log_warning("Azure SDK libraries (azure-identity, azure-mgmt-keyvault, azure-keyvault-keys) are not installed; skipping live Azure scan.")
+            else:
+                azure_findings: List[AzureFinding] = self.azure_scanner.scan()
+                log_info(f"Discovered {len(azure_findings)} cryptographic asset(s) in Azure.")
+                for f in azure_findings:
                     all_findings.append(f.to_dict())
 
         return all_findings
