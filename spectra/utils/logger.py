@@ -14,6 +14,18 @@ from rich.text import Text
 # Shared rich console instance
 console = Console()
 
+BANNER = r"""
+======================================================================
+   _____ _____  ______ _____ _______ _____            
+  / ____|  __ \|  ____/ ____|__   __|  __ \     /\    
+ | (___ | |__) | |__ | |       | |  | |__) |   /  \   
+  \___ \|  ___/|  __| | |       | |  |  _  /   / /\ \  
+  ____) | |    | |____| |____   | |  | | \ \  / ____ \ 
+ |_____/|_|    |______\_____|  |_|  |_|  \_\/_/    \_\
+ 
+ Enterprise Multi-Domain Cryptographic Inventory & CBOM Engine
+======================================================================
+"""
 
 def setup_logger(verbose: bool = False) -> logging.Logger:
     """Configures the standard Python logging system with RichHandler."""

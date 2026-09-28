@@ -26,7 +26,11 @@ class InfrastructureScanOrchestrator:
         self.terraform_scanner = TerraformScanner()
         self.iac_scanner = IaCScanner()
         self.hardware_scanner = HardwareScanner()
-        self.aws_scanner = AWSScanner(regions=config.aws.regions)
+
+        # Safely extract AWS regions from config if present, otherwise default to us-east-1
+        aws_cfg = getattr(config, "aws", None)
+        regions = getattr(aws_cfg, "regions", ["us-east-1"]) if aws_cfg else ["us-east-1"]
+        self.aws_scanner = AWSScanner(regions=regions)
 
     def scan(self, target_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
         """Scans local Terraform directories, IaC manifests, host hardware, and configured AWS regions."""
@@ -63,7 +67,10 @@ class InfrastructureScanOrchestrator:
             all_findings.append(f.to_dict())
 
         # 4. Scan AWS Cloud Resources (KMS CMKs, ACM Certificates if enabled)
-        if self.config.aws.enabled:
+        aws_cfg = getattr(self.config, "aws", None)
+        aws_enabled = getattr(aws_cfg, "enabled", False) if aws_cfg else False
+
+        if aws_enabled:
             log_step("Auditing AWS Cloud Cryptographic Assets (KMS & ACM)")
             if not self.aws_scanner.is_available():
                 log_warning("boto3 is not installed or importable; skipping live AWS scan.")

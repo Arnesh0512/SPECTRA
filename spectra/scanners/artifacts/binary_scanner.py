@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Set
+import yaml
 
 from spectra.utils.shell import command_exists, extract_printable_strings, run_command
 
@@ -20,7 +21,7 @@ class BinaryFinding:
     source_domain: str = "artifacts"
     artifact_type: str = "compiled_binary"
     file_path: str = ""
-    binary_format: str = "unknown"  # ELF, PE, Mach-O, unknown
+    binary_format: str = "unknown"
     linked_crypto_libraries: List[str] = field(default_factory=list)
     detected_symbols: List[str] = field(default_factory=list)
     detected_algorithms: List[str] = field(default_factory=list)
@@ -43,32 +44,31 @@ class BinaryFinding:
         }
 
 
-# Known cryptographic dynamic libraries
-CRYPTO_SHARED_LIBS = {
-    "libcrypto.so", "libssl.so", "libsodium.so", "libnettle.so",
-    "libmbedcrypto.so", "libwolfssl.so", "bcrypt.dll", "crypt32.dll",
-    "ncrypt.dll", "libcrypto.dylib", "libssl.dylib"
-}
-
-# Regex to detect symbol names associated with crypto primitives
-CRYPTO_SYMBOL_REGEX = re.compile(
-    r"\b(EVP_aes_\w+|EVP_des_\w+|EVP_sha\w+|EVP_md5|RSA_generate_\w+|"
-    r"crypto_box_\w+|crypto_sign_\w+|BCryptEncrypt|BCryptGenRandom|"
-    r"mbedtls_aes_\w+|wolfSSL_AES_\w+)\b",
-    re.IGNORECASE
-)
-
-# Regex to catch explicit algorithm names in string pools
-ALGO_STRING_REGEX = re.compile(
-    r"\b(AES-(?:128|192|256)-(?:GCM|CBC|CTR|ECB)|DES-EDE3-CBC|MD5|SHA256|SHA512|ML-KEM|Kyber-768)\b",
-    re.IGNORECASE
-)
-
-
 class BinaryScanner:
-    """Discovers and inspects compiled binaries for cryptographic linkages."""
+    """Discovers and inspects compiled binaries for cryptographic linkages using rules/binary_indicators.yaml."""
 
     BINARY_EXTENSIONS = {".so", ".dll", ".dylib", ".exe", ".bin", ""}
+
+    def __init__(self, rules_file: Optional[Path] = None):
+        if rules_file is None:
+            rules_file = Path(__file__).parent / "rules" / "binary_indicators.yaml"
+        self.indicators = self._load_indicators(rules_file)
+        self.crypto_shared_libs = set(self.indicators.get("libraries", {}).keys())
+        
+        sym_patterns = self.indicators.get("symbol_patterns", [])
+        self.symbol_regex = re.compile(r"\b(" + "|".join(sym_patterns) + r")\w*\b", re.IGNORECASE) if sym_patterns else re.compile(r"$^")
+
+        algo_patterns = self.indicators.get("algorithm_patterns", [])
+        self.algo_regex = re.compile(r"\b(" + "|".join(algo_patterns) + r")\b", re.IGNORECASE) if algo_patterns else None
+
+    def _load_indicators(self, path: Path) -> Dict[str, Any]:
+        if not path.is_file():
+            return {"libraries": {}, "symbol_patterns": [], "algorithm_patterns": []}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {"libraries": {}, "symbol_patterns": [], "algorithm_patterns": []}
 
     def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[BinaryFinding]:
         findings: List[BinaryFinding] = []
@@ -80,12 +80,10 @@ class BinaryScanner:
             if any(part in excluded for part in path.parts):
                 continue
 
-            # Check matching extension or executable permission bit
-            if path.suffix.lower() in self.BINARY_EXTENSIONS:
-                if self._is_binary_file(path):
-                    finding = self.scan_binary(path)
-                    if finding:
-                        findings.append(finding)
+            if path.suffix.lower() in self.BINARY_EXTENSIONS and self._is_binary_file(path):
+                finding = self.scan_binary(path)
+                if finding:
+                    findings.append(finding)
 
         return findings
 
@@ -98,41 +96,41 @@ class BinaryScanner:
         detected_symbols: Set[str] = set()
         detected_algos: Set[str] = set()
 
-        # 1. Inspect dynamic shared libraries (ldd/readelf/strings)
+        # 1. Inspect dynamic shared libraries
         if binary_fmt == "ELF" and command_exists("readelf"):
             code, stdout, _ = run_command(["readelf", "-d", str(file_path)])
             if code == 0:
                 for line in stdout.splitlines():
                     if "NEEDED" in line:
-                        for clib in CRYPTO_SHARED_LIBS:
+                        for clib in self.crypto_shared_libs:
                             if clib in line.lower():
-                                linked_libs.add(clib)
+                                linked_libs.add(self.indicators["libraries"][clib])
 
-        # 2. Inspect symbol tables (nm/readelf/strings)
+        # 2. Inspect symbol tables
         if binary_fmt == "ELF" and command_exists("readelf"):
             code, stdout, _ = run_command(["readelf", "-s", "--wide", str(file_path)])
             if code == 0:
-                for match in CRYPTO_SYMBOL_REGEX.finditer(stdout):
+                for match in self.symbol_regex.finditer(stdout):
                     detected_symbols.add(match.group(0))
 
-        # 3. String pool extraction fallback & algorithm signature search
+        # 3. String pool extraction fallback & explicit algorithm matching
         strings = extract_printable_strings(file_path, min_length=4, limit=30000)
         for s in strings:
-            for clib in CRYPTO_SHARED_LIBS:
+            for clib in self.crypto_shared_libs:
                 if clib in s.lower():
-                    linked_libs.add(clib)
-            for sm in CRYPTO_SYMBOL_REGEX.finditer(s):
+                    linked_libs.add(self.indicators["libraries"][clib])
+            for sm in self.symbol_regex.finditer(s):
                 detected_symbols.add(sm.group(0))
-            for am in ALGO_STRING_REGEX.finditer(s):
-                detected_algos.add(am.group(0))
+            if self.algo_regex:
+                for am in self.algo_regex.finditer(s):
+                    detected_algos.add(am.group(0))
 
-        # Only create a finding if cryptographic footprint is present
         if not (linked_libs or detected_symbols or detected_algos):
             return None
 
         sec_findings = []
         for sym in detected_symbols:
-            if "md5" in sym.lower() or "des" in sym.lower():
+            if "md5" in sym.lower() or "des" in sym.lower() or "rc4" in sym.lower():
                 sec_findings.append({
                     "issue": f"Legacy/broken cryptographic symbol referenced in binary: {sym}",
                     "severity": "HIGH"
@@ -152,7 +150,7 @@ class BinaryScanner:
             linked_crypto_libraries=sorted(list(linked_libs)),
             detected_symbols=sorted(list(detected_symbols)),
             detected_algorithms=sorted(list(detected_algos)),
-            quantum_safe=any("ML-KEM" in a or "Kyber" in a for a in detected_algos),
+            quantum_safe=any("ML-KEM" in a.upper() or "KYBER" in a.upper() for a in detected_algos),
             security_findings=sec_findings,
             raw_metadata={"strings_analyzed_count": len(strings)}
         )

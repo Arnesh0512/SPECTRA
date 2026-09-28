@@ -8,7 +8,7 @@ incorporating cryptoProperties, cross-domain dependencies, and Mosca quantum ass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 import uuid
 
 from .correlator import CorrelatedAsset
@@ -31,7 +31,7 @@ class CBOMBuilder:
         correlated_assets: List[CorrelatedAsset],
         mosca_evaluations: Dict[str, MoscaEvaluation],
     ) -> Dict[str, Any]:
-        """Generates the full CycloneDX 1.6 JSON dictionary."""
+        """Generates the full CycloneDX 1.6 JSON dictionary with strict deduplication."""
         serial_uuid = f"urn:uuid:{uuid.uuid4()}"
         timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -64,25 +64,38 @@ class CBOMBuilder:
             "vulnerabilities": [],
         }
 
+        seen_component_refs: Set[str] = set()
+        seen_vuln_ids: Set[str] = set()
+
         for item in correlated_assets:
             asset = item.primary_asset
-            mosca = mosca_evaluations.get(asset.asset_id)
             bom_ref = f"crypto-ref-{asset.asset_id}"
+
+            # Ensure every bom-ref is strictly unique in the components list
+            if bom_ref in seen_component_refs:
+                continue
+            seen_component_refs.add(bom_ref)
+
+            mosca = mosca_evaluations.get(asset.asset_id)
 
             # 1. Build CycloneDX 1.6 Component
             component = self._build_crypto_component(bom_ref, asset, mosca)
             bom["components"].append(component)
 
-            # 2. Build Dependency Linkage
+            # 2. Build Dependency Linkage (filter to valid related asset references)
+            unique_deps = sorted(list({f"crypto-ref-{rel_id}" for rel_id in item.related_asset_ids if rel_id != asset.asset_id}))
             dep_block = {
                 "ref": bom_ref,
-                "dependsOn": [f"crypto-ref-{rel_id}" for rel_id in item.related_asset_ids],
+                "dependsOn": unique_deps,
             }
             bom["dependencies"].append(dep_block)
 
-            # 3. Add Vulnerability Entries
+            # 3. Add Vulnerability Entries (strictly unique by vuln ID)
             vulns = self._build_vulnerability_entries(bom_ref, asset, mosca)
-            bom["vulnerabilities"].extend(vulns)
+            for v in vulns:
+                if v["id"] not in seen_vuln_ids:
+                    seen_vuln_ids.add(v["id"])
+                    bom["vulnerabilities"].append(v)
 
         return bom
 
@@ -137,15 +150,17 @@ class CBOMBuilder:
             {"name": "crypto:nistStatus", "value": str(asset.nist_status)},
         ]
 
-        # Ingest scanner context (language, operation)
+        # Ingest scanner context (language, operation) without emitting literal 'None'
         if hasattr(asset, "raw_metadata") and isinstance(asset.raw_metadata, dict):
-            if "language" in asset.raw_metadata:
+            lang = asset.raw_metadata.get("language")
+            if lang and str(lang).lower() != "none":
                 crypto_prop["properties"].append(
-                    {"name": "crypto:sourceLanguage", "value": str(asset.raw_metadata["language"])}
+                    {"name": "crypto:sourceLanguage", "value": str(lang)}
                 )
-            if "operation" in asset.raw_metadata:
+            op = asset.raw_metadata.get("operation")
+            if op and str(op).lower() != "none":
                 crypto_prop["properties"].append(
-                    {"name": "crypto:operation", "value": str(asset.raw_metadata["operation"])}
+                    {"name": "crypto:operation", "value": str(op)}
                 )
 
         if mosca:

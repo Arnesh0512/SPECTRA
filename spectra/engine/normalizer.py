@@ -71,7 +71,17 @@ class AssetNormalizer:
         return self._normalize_fallback(raw_finding)
 
     def normalize_batch(self, raw_findings: List[Dict[str, Any]]) -> List[NormalizedCryptoAsset]:
-        return [self.normalize(f) for f in raw_findings]
+        """Normalizes and deduplicates findings by asset_id to guarantee unique CBOM components."""
+        seen_ids = set()
+        deduped_assets: List[NormalizedCryptoAsset] = []
+
+        for f in raw_findings:
+            asset = self.normalize(f)
+            if asset.asset_id not in seen_ids:
+                seen_ids.add(asset.asset_id)
+                deduped_assets.append(asset)
+
+        return deduped_assets
 
     def _normalize_source(self, finding: Dict[str, Any]) -> NormalizedCryptoAsset:
         file_path = finding.get("file_path", "")
@@ -83,6 +93,7 @@ class AssetNormalizer:
         key_size = finding.get("key_size")
         curve = finding.get("curve")
         quantum_safe = finding.get("quantum_safe", False)
+        operation = finding.get("operation")
 
         # 1. Derive CycloneDX 1.6 Asset Type
         if primitive in ["certificate", "x509"]:
@@ -95,17 +106,19 @@ class AssetNormalizer:
             asset_type = "algorithm"
 
         # 2. Derive Shor's Algorithm Vulnerability
-        # Shor breaks asymmetric primitives (factorization, discrete log, elliptic curves)
         asymmetric_primitives = {
             "public_key", "signature", "key_exchange",
             "asymmetric_encryption", "key_agreement"
         }
+        
+        algo_tokens = {"RSA", "DSA", "ECDSA", "ECDH", "ECC", "DH", "ED25519", "X25519", "ED448", "X448", "SIGNATURE"}
+        is_asymmetric_named = any(token in algo for token in algo_tokens)
+        is_asymmetric_op = operation in ["digital_signature", "signature_verification", "keypair_generation"]
+
         if quantum_safe:
             shor_vulnerable = False
         else:
-            shor_vulnerable = primitive in asymmetric_primitives or algo in {
-                "RSA", "DSA", "ECDSA", "ECDH", "ECC", "DH", "ED25519", "X25519", "ED448", "X448"
-            }
+            shor_vulnerable = (primitive in asymmetric_primitives) or is_asymmetric_named or is_asymmetric_op
 
         # 3. Canonical Display Name
         if curve:
@@ -121,8 +134,8 @@ class AssetNormalizer:
         metadata = finding.get("raw_metadata", {}).copy()
         if finding.get("language"):
             metadata["language"] = finding.get("language")
-        if finding.get("operation"):
-            metadata["operation"] = finding.get("operation")
+        if operation:
+            metadata["operation"] = operation
 
         return NormalizedCryptoAsset(
             asset_id=asset_id,

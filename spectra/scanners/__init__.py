@@ -90,7 +90,9 @@ class MasterScanner:
 
         # 4. Network and Protocol Scanning
         log_step("Domain 4/4: Network & Protocol Analysis")
-        target_eps = endpoints or self.config.network.endpoints
+        net_cfg = getattr(self.config, "network", None)
+        default_eps = getattr(net_cfg, "endpoints", []) if net_cfg else []
+        target_eps = endpoints or default_eps
         results.network_findings = self.network_orchestrator.scan(
             target_dir=resolved_dir,
             endpoints=target_eps

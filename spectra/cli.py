@@ -91,9 +91,13 @@ def scan(
 
     # 2. Execute Scanners across all domains
     scanner = MasterScanner(config)
+    
+    net_cfg = getattr(config, "network", None)
+    net_endpoints = getattr(net_cfg, "endpoints", []) if net_cfg else []
+
     results: ScanResults = scanner.scan_all(
         target_dir=target,
-        endpoints=config.network.endpoints,
+        endpoints=net_endpoints,
     )
 
     if results.total_count == 0:

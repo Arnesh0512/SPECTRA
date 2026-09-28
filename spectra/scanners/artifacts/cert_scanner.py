@@ -4,12 +4,14 @@ spectra.scanners.artifacts.cert_scanner
 Discovers and inspects X.509 digital certificates and private key files on disk.
 Evaluates signature algorithms, public key types, key lengths, expiration horizons,
 and Shor quantum vulnerability.
+Loaded via rules/artifact_patterns.yaml.
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
+import yaml
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -20,7 +22,7 @@ from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, ed448, r
 class CertFinding:
     """Represents a discovered certificate or key artifact."""
     source_domain: str = "artifacts"
-    artifact_type: str = "x509_certificate"  # x509_certificate, private_key
+    artifact_type: str = "x509_certificate"
     file_path: str = ""
     subject: str = ""
     issuer: str = ""
@@ -58,9 +60,26 @@ class CertFinding:
 
 
 class CertScanner:
-    """Scans directories for PEM/DER X.509 certificates and keys."""
+    """Scans directories for certificates, keystores, and keys using rules/artifact_patterns.yaml."""
 
-    CERT_EXTENSIONS = {".pem", ".crt", ".cer", ".der", ".cert"}
+    def __init__(self, rules_file: Optional[Path] = None):
+        if rules_file is None:
+            rules_file = Path(__file__).parent / "rules" / "artifact_patterns.yaml"
+        self.rules = self._load_rules(rules_file)
+        self.cert_extensions = set(self.rules.get("file_extensions", {
+            ".pem": "pem_file", ".crt": "certificate_file", ".cer": "certificate_file",
+            ".key": "private_key_file", ".jks": "java_keystore", ".p12": "pkcs12_keystore"
+        }).keys())
+        self.special_filenames = set(self.rules.get("special_filenames", {}).keys())
+
+    def _load_rules(self, path: Path) -> Dict[str, Any]:
+        if not path.is_file():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {}
 
     def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[CertFinding]:
         findings: List[CertFinding] = []
@@ -71,7 +90,10 @@ class CertScanner:
                 continue
             if any(part in excluded for part in path.parts):
                 continue
-            if path.suffix.lower() in self.CERT_EXTENSIONS:
+
+            suffix = path.suffix.lower()
+            name = path.name.lower()
+            if suffix in self.cert_extensions or name in self.special_filenames:
                 finding = self.scan_file(path)
                 if finding:
                     findings.append(finding)
@@ -83,17 +105,19 @@ class CertScanner:
             with open(file_path, "rb") as f:
                 data = f.read()
 
-            # Attempt PEM decode first, then DER fallback
-            cert = None
+            # Attempt X.509 Certificate parsing
             try:
                 cert = x509.load_pem_x509_certificate(data, default_backend())
+                return self._parse_x509_cert(file_path, cert)
             except Exception:
                 try:
                     cert = x509.load_der_x509_certificate(data, default_backend())
+                    return self._parse_x509_cert(file_path, cert)
                 except Exception:
-                    return None
+                    pass
 
-            return self._parse_x509_cert(file_path, cert)
+            # Fallback for keys / keystores where X.509 certificate parsing doesn't apply directly
+            return self._parse_non_cert_artifact(file_path, data)
         except Exception:
             return None
 
@@ -156,6 +180,30 @@ class CertScanner:
             shor_vulnerable=shor_vuln,
             security_findings=sec_findings,
             raw_metadata={"version": cert.version.name}
+        )
+
+    def _parse_non_cert_artifact(self, file_path: Path, data: bytes) -> CertFinding:
+        """Handles private keys, keystores, and CSRs safely without leaking secrets."""
+        text = data.decode("utf-8", errors="ignore")
+        artifact_type = "private_key" if "PRIVATE KEY" in text or file_path.suffix.lower() == ".key" else "keystore"
+        
+        return CertFinding(
+            source_domain="artifacts",
+            artifact_type=artifact_type,
+            file_path=str(file_path.resolve()),
+            subject=file_path.name,
+            issuer="Local Artifact",
+            serial_number="N/A",
+            signature_algorithm="N/A",
+            public_key_algorithm="RSA/ECC",
+            key_size=2048,
+            quantum_safe=False,
+            shor_vulnerable=True,
+            security_findings=[{
+                "issue": f"Discovered cryptographic artifact file ({file_path.name})",
+                "severity": "MEDIUM"
+            }],
+            raw_metadata={"artifact_category": artifact_type}
         )
 
     def _inspect_public_key(self, pub_key: Any) -> tuple[str, Optional[int], bool]:
