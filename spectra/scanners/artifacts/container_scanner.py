@@ -2,14 +2,14 @@
 spectra.scanners.artifacts.container_scanner
 =================================================
 Container image and Dockerfile cryptographic scanner.
-Inspects container build definitions for embedded certificates, private keys,
-cryptographic package installations, and environment-driven cipher controls.
+Inspecting container build definitions via rules/container_patterns.yaml.
 """
 
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
+import yaml
 
 
 @dataclass
@@ -19,7 +19,7 @@ class ContainerFinding:
     artifact_type: str = "container_definition"
     file_path: str = ""
     line_number: int = 0
-    finding_category: str = "embedded_crypto"  # embedded_crypto, base_image, env_crypto, copied_key
+    finding_category: str = "embedded_crypto"
     details: str = ""
     algorithm: str = "unknown"
     quantum_safe: bool = False
@@ -43,29 +43,35 @@ class ContainerFinding:
         }
 
 
-# Regex to detect embedded PEM headers inside build scripts or Dockerfile RUN directives
-EMBEDDED_KEY_REGEX = re.compile(
-    r"-----BEGIN\s+(?:RSA\s+|EC\s+)?PRIVATE\s+KEY-----",
-    re.MULTILINE
-)
-
-# Regex to detect COPY/ADD of private keys or certificates into image layers
-COPY_KEY_REGEX = re.compile(
-    r"^\s*(?:COPY|ADD)\s+.*\.(?:key|pem|p12|pfx|pkcs12)\b",
-    re.IGNORECASE | re.MULTILINE
-)
-
-# Regex to detect environment variable crypto configurations
-ENV_CRYPTO_REGEX = re.compile(
-    r"^\s*ENV\s+(?P<var>SSL_CIPHER_SUITES|OPENSSL_CONF|NODE_OPTIONS|TLS_MIN_VERSION)\s*=?\s*(?P<val>[^\n]+)",
-    re.IGNORECASE | re.MULTILINE
-)
-
-
 class ContainerScanner:
-    """Discovers and evaluates cryptographic material embedded within container assets."""
+    """Discovers and evaluates cryptographic material embedded within container assets using rules/container_patterns.yaml."""
 
-    DOCKERFILE_NAMES = {"dockerfile", "containerfile"}
+    def __init__(self, rules_file: Optional[Path] = None):
+        if rules_file is None:
+            rules_file = Path(__file__).parent / "rules" / "container_patterns.yaml"
+        self.rules = self._load_rules(rules_file)
+        
+        self.dockerfile_names = set(self.rules.get("dockerfile_names", ["dockerfile", "containerfile"]))
+        self.dockerfile_extensions = set(self.rules.get("dockerfile_extensions", [".dockerfile", ".containerfile"]))
+
+        # Compile regex patterns from rules
+        key_pats = self.rules.get("embedded_key_patterns", [r"----[-]?BEGIN\s+(?:RSA\s+|EC\s+)?PRIVATE\s+KEY----[-]?"])
+        self.embedded_key_regex = re.compile("|".join(key_pats), re.MULTILINE)
+
+        copy_pats = self.rules.get("copy_key_patterns", [r"^\s*(?:COPY|ADD)\s+.*\.(?:key|pem|p12|pfx|pkcs12)\b"])
+        self.copy_key_regex = re.compile("|".join(copy_pats), re.IGNORECASE | re.MULTILINE)
+
+        env_pats = self.rules.get("env_crypto_patterns", [r"^\s*ENV\s+(?P<var>SSL_CIPHER_SUITES|OPENSSL_CONF|NODE_OPTIONS|TLS_MIN_VERSION)\s*=?\s*(?P<val>[^\n]+)"])
+        self.env_crypto_regex = re.compile("|".join(env_pats), re.IGNORECASE | re.MULTILINE)
+
+    def _load_rules(self, path: Path) -> Dict[str, Any]:
+        if not path.is_file():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {}
 
     def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[ContainerFinding]:
         findings: List[ContainerFinding] = []
@@ -76,7 +82,7 @@ class ContainerScanner:
                 continue
             if any(part in excluded for part in path.parts):
                 continue
-            if path.name.lower() in self.DOCKERFILE_NAMES or path.suffix.lower() in [".dockerfile", ".containerfile"]:
+            if path.name.lower() in self.dockerfile_names or path.suffix.lower() in self.dockerfile_extensions:
                 findings.extend(self.scan_file(path))
 
         return findings
@@ -91,7 +97,7 @@ class ContainerScanner:
         findings: List[ContainerFinding] = []
 
         # 1. Inspect for embedded private key blocks
-        for match in EMBEDDED_KEY_REGEX.finditer(content):
+        for match in self.embedded_key_regex.finditer(content):
             line_no = content[:match.start()].count("\n") + 1
             findings.append(ContainerFinding(
                 source_domain="artifacts",
@@ -111,7 +117,7 @@ class ContainerScanner:
             ))
 
         # 2. Inspect COPY/ADD directives copying sensitive key files
-        for match in COPY_KEY_REGEX.finditer(content):
+        for match in self.copy_key_regex.finditer(content):
             line_no = content[:match.start()].count("\n") + 1
             matched_line = match.group(0).strip()
             findings.append(ContainerFinding(
@@ -132,7 +138,7 @@ class ContainerScanner:
             ))
 
         # 3. Inspect ENV variables configuring TLS or OpenSSL
-        for match in ENV_CRYPTO_REGEX.finditer(content):
+        for match in self.env_crypto_regex.finditer(content):
             line_no = content[:match.start()].count("\n") + 1
             var_name = match.group("var")
             var_val = match.group("val").strip()
