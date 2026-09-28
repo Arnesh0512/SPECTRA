@@ -2,7 +2,7 @@
 spectra.engine.cbom_builder
 ================================
 Builds compliant CycloneDX 1.6 Cryptographic Bill of Materials (CBOM) documents
-incorporating cryptoProperties, cross-domain dependencies, and Mosca quantum assessments.
+incorporating cryptoProperties, cross-domain typed relationship edges, and Mosca quantum assessments.
 """
 
 from datetime import datetime, timezone
@@ -20,7 +20,7 @@ CBOM_SCHEMA_VERSION = "http://cyclonedx.org/schema/bom-1.6.schema.json"
 
 
 class CBOMBuilder:
-    """Constructs a CycloneDX 1.6 CBOM document from correlated assets and Mosca assessments."""
+    """Constructs a strict CycloneDX 1.6 CBOM document from correlated assets and Mosca assessments."""
 
     def __init__(self, application_name: str = "crypto-recon-target", version: str = "1.0.0"):
         self.application_name = application_name
@@ -31,7 +31,7 @@ class CBOMBuilder:
         correlated_assets: List[CorrelatedAsset],
         mosca_evaluations: Dict[str, MoscaEvaluation],
     ) -> Dict[str, Any]:
-        """Generates the full CycloneDX 1.6 JSON dictionary with strict deduplication."""
+        """Generates the full CycloneDX 1.6 JSON dictionary with strict deduplication and typed dependency graph edges."""
         serial_uuid = f"urn:uuid:{uuid.uuid4()}"
         timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -66,6 +66,7 @@ class CBOMBuilder:
 
         seen_component_refs: Set[str] = set()
         seen_vuln_ids: Set[str] = set()
+        dependency_map: Dict[str, Set[str]] = {}
 
         for item in correlated_assets:
             asset = item.primary_asset
@@ -78,24 +79,36 @@ class CBOMBuilder:
 
             mosca = mosca_evaluations.get(asset.asset_id)
 
-            # 1. Build CycloneDX 1.6 Component
+            # 1. Build Component
             component = self._build_crypto_component(bom_ref, asset, mosca)
             bom["components"].append(component)
 
-            # 2. Build Dependency Linkage (filter to valid related asset references)
-            unique_deps = sorted(list({f"crypto-ref-{rel_id}" for rel_id in item.related_asset_ids if rel_id != asset.asset_id}))
-            dep_block = {
-                "ref": bom_ref,
-                "dependsOn": unique_deps,
-            }
-            bom["dependencies"].append(dep_block)
+            # 2. Accumulate Dependency Links from Correlated Typed Edges
+            deps = dependency_map.setdefault(bom_ref, set())
+            for rel_id in item.related_asset_ids:
+                if rel_id != asset.asset_id:
+                    deps.add(f"crypto-ref-{rel_id}")
 
-            # 3. Add Vulnerability Entries (strictly unique by vuln ID)
+            for edge in item.typed_edges:
+                target_id = edge.get("to")
+                if target_id and target_id != asset.asset_id:
+                    # If target is another component ref, add it to dependsOn
+                    target_ref = f"crypto-ref-{target_id}" if not target_id.startswith("crypto-ref-") else target_id
+                    deps.add(target_ref)
+
+            # 3. Build Vulnerabilities
             vulns = self._build_vulnerability_entries(bom_ref, asset, mosca)
             for v in vulns:
                 if v["id"] not in seen_vuln_ids:
                     seen_vuln_ids.add(v["id"])
                     bom["vulnerabilities"].append(v)
+
+        # Format final deduplicated dependencies list
+        for ref, depends in sorted(dependency_map.items()):
+            bom["dependencies"].append({
+                "ref": ref,
+                "dependsOn": sorted(list(depends)),
+            })
 
         return bom
 
@@ -154,14 +167,17 @@ class CBOMBuilder:
         if hasattr(asset, "raw_metadata") and isinstance(asset.raw_metadata, dict):
             lang = asset.raw_metadata.get("language")
             if lang and str(lang).lower() != "none":
-                crypto_prop["properties"].append(
-                    {"name": "crypto:sourceLanguage", "value": str(lang)}
-                )
+                crypto_prop["properties"].append({"name": "crypto:sourceLanguage", "value": str(lang)})
             op = asset.raw_metadata.get("operation")
             if op and str(op).lower() != "none":
-                crypto_prop["properties"].append(
-                    {"name": "crypto:operation", "value": str(op)}
-                )
+                crypto_prop["properties"].append({"name": "crypto:operation", "value": str(op)})
+
+        if hasattr(asset, "policy_violations") and asset.policy_violations:
+            for viol in asset.policy_violations:
+                crypto_prop["properties"].append({
+                    "name": f"policy:violation:{viol.get('rule_id')}",
+                    "value": viol.get("message")
+                })
 
         if mosca:
             crypto_prop["properties"].extend([
@@ -204,7 +220,19 @@ class CBOMBuilder:
                 "affects": [{"ref": bom_ref}],
             })
 
-        # Add Mosca quantum vulnerability entry if breached
+        if hasattr(asset, "policy_violations") and asset.policy_violations:
+            for idx, viol in enumerate(asset.policy_violations):
+                vulns.append({
+                    "id": f"POLICY-VIOLATION-{asset.asset_id}-{viol.get('rule_id', idx)}",
+                    "source": {"name": "crypto-policy-engine"},
+                    "ratings": [{
+                        "severity": viol.get("severity", "HIGH").lower(),
+                        "method": "other",
+                    }],
+                    "description": viol.get("message", "Policy violation"),
+                    "affects": [{"ref": bom_ref}],
+                })
+
         if mosca and mosca.is_inequality_breached:
             vulns.append({
                 "id": f"MOSCA-PQC-EXP-{asset.asset_id}",

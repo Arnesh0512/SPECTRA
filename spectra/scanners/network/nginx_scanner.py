@@ -4,12 +4,14 @@ spectra.scanners.network.nginx_scanner
 Static configuration scanner for Nginx and Apache web servers.
 Parses configuration directives for TLS protocols, cipher suites,
 curve preferences, and referenced certificate file paths.
+Loaded via rules/network_indicators.yaml.
 """
 
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
+import yaml
 
 
 @dataclass
@@ -62,9 +64,25 @@ SERVER_BLOCK_REGEX = re.compile(r"server\s*\{", re.MULTILINE)
 
 
 class NginxScanner:
-    """Discovers and evaluates cryptographic settings across Nginx/Apache configuration files."""
+    """Discovers and evaluates cryptographic settings across Nginx/Apache configuration files using rules/network_indicators.yaml."""
 
     CONFIG_EXTENSIONS = {".conf", ".nginx", ".vhost"}
+
+    def __init__(self, rules_file: Optional[Path] = None):
+        if rules_file is None:
+            rules_file = Path(__file__).parent / "rules" / "network_indicators.yaml"
+        self.rules = self._load_rules(rules_file)
+        self.insecure_tls_versions = set(self.rules.get("insecure_tls_versions", ["SSLv2", "SSLv3", "TLSv1", "TLSv1.1"]))
+        self.insecure_cipher_tokens = self.rules.get("insecure_cipher_tokens", ["MD5", "RC4", "DES", "3DES", "NULL", "EXPORT"])
+
+    def _load_rules(self, path: Path) -> Dict[str, Any]:
+        if not path.is_file():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {}
 
     def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[NginxFinding]:
         findings: List[NginxFinding] = []
@@ -135,18 +153,14 @@ class NginxScanner:
         ciphers = directives.get("ssl_ciphers", "")
         ecdh_curve = directives.get("ssl_ecdh_curve", "")
 
-        # 1. Audit TLS protocols
-        insecure_protos = {"SSLv2", "SSLv3", "TLSv1", "TLSv1.1"}
-        matched_insecure = insecure_protos.intersection(set(protocols))
+        matched_insecure = self.insecure_tls_versions.intersection(set(protocols))
         if matched_insecure:
             sec_findings.append({
                 "issue": f"Legacy, insecure TLS protocols enabled: {', '.join(sorted(matched_insecure))}",
                 "severity": "CRITICAL"
             })
 
-        # 2. Audit cipher string
-        insecure_cipher_tokens = ["MD5", "RC4", "DES", "3DES", "NULL", "EXPORT", "aNULL", "eNULL"]
-        for token in insecure_cipher_tokens:
+        for token in self.insecure_cipher_tokens:
             if re.search(rf"\b{token}\b", ciphers, re.IGNORECASE):
                 sec_findings.append({
                     "issue": f"Broken/insecure cipher token configured in ssl_ciphers: {token}",

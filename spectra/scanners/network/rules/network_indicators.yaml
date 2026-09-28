@@ -1,0 +1,46 @@
+schema_version: "1.0"
+description: "Network security indicators, ports, and protocol directive patterns."
+
+default_ports:
+  - 22
+  - 443
+  - 8443
+  - 9443
+
+tls_ports:
+  - 443
+  - 8443
+  - 9443
+
+ssh_ports:
+  - 22
+
+insecure_tls_versions:
+  - "SSLv2"
+  - "SSLv3"
+  - "TLSv1"
+  - "TLSv1.1"
+
+insecure_cipher_tokens:
+  - "MD5"
+  - "RC4"
+  - "DES"
+  - "3DES"
+  - "NULL"
+  - "EXPORT"
+  - "aNULL"
+  - "eNULL"
+
+weak_ssh_kex:
+  - "group1-sha1"
+  - "group14-sha1"
+
+weak_ssh_ciphers:
+  - "3des"
+  - "arcfour"
+  - "blowfish"
+  - "cast128"
+
+weak_ssh_macs:
+  - "md5"
+  - "sha1"
