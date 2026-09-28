@@ -14,7 +14,7 @@ from .rules import RuleEngine, DEFAULT_RULE_ENGINE
 
 @dataclass
 class SourceFinding:
-    """Standardized finding representation produced by any source code scanner."""
+    """Standardized finding representation produced by any source code or dependency scanner."""
     source_domain: str = "source_code"
     language: str = ""
     file_path: str = ""
@@ -64,15 +64,12 @@ class BaseSourceScanner(ABC):
 
     @abstractmethod
     def supported_extensions(self) -> List[str]:
-        """Returns list of file extensions handled by this scanner (e.g., ['.py'])."""
+        """Returns list of file extensions handled by this scanner."""
         pass
 
     @abstractmethod
     def parse_file(self, file_path: Path) -> List[SourceFinding]:
-        """
-        Parses a single source file and returns discovered cryptographic operations.
-        Must handle parser syntax errors gracefully without raising unhandled exceptions.
-        """
+        """Parses a single source file and returns discovered cryptographic operations."""
         pass
 
     def extract_snippet(self, file_path: Path, line_number: int, context: int = 1) -> str:

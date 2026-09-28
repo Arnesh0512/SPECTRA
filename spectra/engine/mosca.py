@@ -22,7 +22,7 @@ class MoscaEvaluation:
     migration_time_y: int  # Time needed to migrate to PQC (years)
     quantum_threshold_z: int  # Estimated years until CRQC viability
     is_inequality_breached: bool  # True if (X + Y > Z)
-    risk_level: str  # CRITICAL, HIGH, MEDIUM, LOW, QUANTUM_SAFE
+    risk_level: str  # CRITICAL, HIGH, MEDIUM, LOW, QUANTUM_SAFE, LEGACY_INSECURE
     sndl_vulnerable: bool  # Store Now, Decrypt Later susceptibility
     recommended_pqc_replacement: str
     rationale: str
@@ -86,6 +86,27 @@ class MoscaRiskEngine:
         x = self.default_shelf_life
         y = self.default_migration_time
 
+        # Detect classical break or deprecation
+        has_critical_finding = any(f.get("severity") == "CRITICAL" for f in asset.security_findings)
+        is_classically_broken = (
+            asset.nist_status in ["broken_classical", "deprecated_classical"]
+            or has_critical_finding
+        )
+
+        if is_classically_broken and not asset.shor_vulnerable:
+            return MoscaEvaluation(
+                asset_id=asset.asset_id,
+                algorithm=asset.algorithm,
+                shelf_life_x=x,
+                migration_time_y=y,
+                quantum_threshold_z=z,
+                is_inequality_breached=False,
+                risk_level="HIGH",
+                sndl_vulnerable=False,
+                recommended_pqc_replacement="Remediate classical vulnerability (upgrade to TLS 1.3 / secure cipher)",
+                rationale="Asset is already broken or deprecated under classical cryptanalysis."
+            )
+
         # Quantum-safe assets bypass inequality
         if asset.quantum_safe or not asset.shor_vulnerable:
             return MoscaEvaluation(
@@ -104,7 +125,6 @@ class MoscaRiskEngine:
         # Classical asymmetric primitives are vulnerable to Shor's algorithm
         breached = (x + y) > z
         
-        # SNDL (Store Now, Decrypt Later) applies to key exchange, key encapsulation, public-key encryption, and transport confidentiality
         sndl_primitives = {
             "key_exchange",
             "key_agreement",

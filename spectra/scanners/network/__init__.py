@@ -55,7 +55,10 @@ class NetworkScanOrchestrator:
                 all_findings.append(pf.to_dict())
 
         # 2. Live Network Endpoint Scanning
-        target_endpoints = endpoints or self.config.network.endpoints
+        net_cfg = getattr(self.config, "network", None)
+        default_endpoints = getattr(net_cfg, "endpoints", []) if net_cfg else []
+        target_endpoints = endpoints or default_endpoints
+
         if target_endpoints:
             log_step(f"Executing active TLS handshakes against {len(target_endpoints)} endpoint(s)")
             for ep_str in target_endpoints:

@@ -26,17 +26,21 @@ spectra/
 │   │   ├── source/
 │   │   │   ├── rules/
 │   │   │   │   ├── algorithms.yaml
-│   │   │   │   ├── libraries_compiled.yaml
+│   │   │   │   ├── libraries_cpp.yaml
+│   │   │   │   ├── libraries_go.yaml
 │   │   │   │   ├── libraries_js_ts.yaml
 │   │   │   │   ├── libraries_jvm.yaml
-│   │   │   │   └── libraries_python.yaml
+│   │   │   │   ├── libraries_python.yaml
+│   │   │   │   └── libraries_rust.yaml
 │   │   │   ├── __init__.py
 │   │   │   ├── base.py
-│   │   │   ├── compiled_src.py
+│   │   │   ├── cpp_scanner.py
+│   │   │   ├── go_scanner.py
 │   │   │   ├── js_ts_scanner.py
 │   │   │   ├── jvm_scanner.py
 │   │   │   ├── python_scanner.py
-│   │   │   └── rules.py
+│   │   │   ├── rules.py
+│   │   │   └── rust_scanner.py
 │   │   └── __init__.py
 │   ├── utils/
 │   │   ├── __init__.py
@@ -45,20 +49,10 @@ spectra/
 │   ├── __init__.py
 │   ├── cli.py
 │   ├── config.py
-│   └── flattener.py
-├── tests/
-│   ├── fixtures/
-│   ├── __init__.py
-│   ├── test_cbom_builder.py
-│   └── test_mosca.py
 ├── .gitignore
 ├── cbom_policy.json
 ├── config.example.yaml
 ├── Dockerfile
-├── helper1.py
 ├── pyproject.toml
 ├── README.md
 ├── requirements.txt
-├── test_2.py
-├── test_3.py
-└── test_ast_integration.py

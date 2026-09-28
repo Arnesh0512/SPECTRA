@@ -98,9 +98,10 @@ class AssetCorrelator:
                     cross_domain_links=links,
                 ))
 
-        # 3. Add remaining non-correlated / standalone assets
+        # 3. Add remaining non-correlated / standalone assets (strictly deduplicated)
         for asset in assets:
             if asset.asset_id not in consumed_ids:
+                consumed_ids.add(asset.asset_id)
                 correlated_results.append(CorrelatedAsset(
                     primary_asset=asset,
                     related_asset_ids=[],

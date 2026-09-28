@@ -31,6 +31,15 @@ class SourceScannerConfig(BaseModel):
     )
 
 
+class NetworkConfig(BaseModel):
+    endpoints: List[str] = Field(default_factory=list, description="Remote host:port targets for TLS inspection")
+
+
+class AWSConfig(BaseModel):
+    enabled: bool = Field(default=False, description="Enable live AWS KMS and ACM discovery")
+    regions: List[str] = Field(default_factory=lambda: ["us-east-1"], description="AWS regions to scan")
+
+
 class MoscaConfig(BaseModel):
     default_data_classification: str = Field(default="corporate_financials", description="Key matching cbom_policy.json shelf lives")
     crqc_scenario: str = Field(default="central", description="pessimistic, central, or optimistic")
@@ -46,14 +55,25 @@ class ScanConfig(BaseModel):
     scan_targets: ScanTargets = Field(default_factory=ScanTargets)
     scanners: ScannerToggles = Field(default_factory=ScannerToggles)
     source_scanner: SourceScannerConfig = Field(default_factory=SourceScannerConfig)
+    network: NetworkConfig = Field(default_factory=NetworkConfig)
+    aws: AWSConfig = Field(default_factory=AWSConfig)
     mosca_parameters: MoscaConfig = Field(default_factory=MoscaConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
+
+    @classmethod
+    def load(cls, config_path: Path) -> "ScanConfig":
+        """Loads configuration from YAML or JSON file."""
+        with open(config_path, "r", encoding="utf-8") as f:
+            if config_path.suffix.lower() in [".yaml", ".yml"]:
+                data = yaml.safe_load(f) or {}
+            else:
+                data = json.load(f) or {}
+        return cls(**data)
 
 
 def load_policy(policy_path: Optional[Path] = None) -> Dict[str, Any]:
     """Loads the centralized CBOM and quantum risk policy (cbom_policy.json)."""
     if policy_path is None:
-        # Defaults to root cbom_policy.json relative to package installation
         policy_path = Path(__file__).resolve().parent.parent / "cbom_policy.json"
 
     if not policy_path.exists():
@@ -79,16 +99,17 @@ def load_config(
             if isinstance(loaded, dict):
                 raw_data = loaded
 
-    # Apply top-level CLI overrides if specified
     if cli_overrides:
         if "project_root" in cli_overrides and cli_overrides["project_root"]:
             raw_data.setdefault("scan_targets", {})["project_root"] = cli_overrides["project_root"]
 
         if "domains" in cli_overrides and cli_overrides["domains"]:
             raw_data.setdefault("scan_targets", {})["domains"] = cli_overrides["domains"]
+            raw_data.setdefault("network", {})["endpoints"] = cli_overrides["domains"]
 
         if "aws_regions" in cli_overrides and cli_overrides["aws_regions"]:
             raw_data.setdefault("scan_targets", {})["aws_regions"] = cli_overrides["aws_regions"]
+            raw_data.setdefault("aws", {})["regions"] = cli_overrides["aws_regions"]
 
         if "output_file" in cli_overrides and cli_overrides["output_file"]:
             raw_data.setdefault("output", {})["output_file"] = cli_overrides["output_file"]
