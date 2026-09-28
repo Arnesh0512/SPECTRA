@@ -3,8 +3,7 @@ spectra.scanners.infrastructure.iac_scanner
 ================================================
 Static Infrastructure-as-Code (IaC) scanner for Kubernetes manifests,
 Helm templates, and CloudFormation definitions.
-Discovers cryptographic resource declarations, Ingress TLS terminations,
-and secret key references.
+Loaded via rules/infra_patterns.yaml.
 """
 
 from dataclasses import dataclass, field
@@ -48,10 +47,26 @@ class IaCFinding:
 
 
 class IaCScanner:
-    """Discovers cryptographic configurations across Kubernetes and CloudFormation manifests."""
+    """Discovers cryptographic configurations across Kubernetes and CloudFormation manifests using rules/infra_patterns.yaml."""
 
     YAML_EXTENSIONS = {".yaml", ".yml"}
     JSON_EXTENSIONS = {".json"}
+
+    def __init__(self, rules_file: Optional[Path] = None):
+        if rules_file is None:
+            rules_file = Path(__file__).parent / "rules" / "infra_patterns.yaml"
+        self.rules = self._load_rules(rules_file)
+        self.k8s_resources = set(self.rules.get("kubernetes_resources", ["Secret", "Ingress"]))
+        self.cf_resources = set(self.rules.get("cloudformation_resources", ["AWS::KMS::Key", "AWS::CertificateManager::Certificate"]))
+
+    def _load_rules(self, path: Path) -> Dict[str, Any]:
+        if not path.is_file():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {}
 
     def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[IaCFinding]:
         findings: List[IaCFinding] = []
@@ -104,6 +119,9 @@ class IaCScanner:
     def _evaluate_k8s_doc(self, file_path: Path, doc: Dict[str, Any]) -> List[IaCFinding]:
         findings: List[IaCFinding] = []
         kind = doc.get("kind", "")
+        if kind not in self.k8s_resources:
+            return findings
+
         meta = doc.get("metadata", {})
         name = meta.get("name", "unnamed")
 
@@ -156,6 +174,9 @@ class IaCScanner:
             if not isinstance(res_def, dict):
                 continue
             res_type = res_def.get("Type", "")
+            if res_type not in self.cf_resources:
+                continue
+
             props = res_def.get("Properties", {})
 
             # KMS Key
