@@ -165,29 +165,36 @@ class CryptoASTVisitor(ast.NodeVisitor):
 
         code_snippet = self.scanner_ref.extract_snippet(self.file_path, node.lineno)
 
-        self.findings.append(
-            SourceFinding(
-                language="python",
-                file_path=str(self.file_path.resolve()),
-                line_number=node.lineno,
-                column_number=node.col_offset,
-                code_snippet=code_snippet,
-                primitive=primitive,
-                algorithm=algo_name,
-                key_size=key_size,
-                mode=mode_val,
-                curve=curve_val,
-                operation=pattern.operation,
-                quantum_safe=quantum_safe,
-                nist_status=nist_status,
-                security_findings=sec_findings,
-                raw_metadata={
-                    "call_name": full_call_name,
-                    "operation": pattern.operation,
-                    "digestmod": digest_arg
-                }
-            )
+        # Compute call-graph and LOC metrics using BaseSourceScanner ripgrep helper
+        symbol_name = full_call_name.split(".")[-1]
+        dirs, trans, depth, loc = self.scanner_ref.compute_call_metrics(self.file_path, symbol_name)
+
+        finding = SourceFinding(
+            language="python",
+            file_path=str(self.file_path.resolve()),
+            line_number=node.lineno,
+            column_number=node.col_offset,
+            code_snippet=code_snippet,
+            primitive=primitive,
+            algorithm=algo_name,
+            key_size=key_size,
+            mode=mode_val,
+            curve=curve_val,
+            operation=pattern.operation,
+            quantum_safe=quantum_safe,
+            nist_status=nist_status,
+            direct_calls=dirs,
+            transitive_calls=trans,
+            call_depth=depth,
+            loc=loc,
+            security_findings=sec_findings,
+            raw_metadata={
+                "call_name": full_call_name,
+                "operation": pattern.operation,
+                "digestmod": digest_arg
+            }
         )
+        self.findings.append(finding)
 
     def _extract_cipher_mode(self, node: ast.Call) -> Optional[str]:
         """Extracts mode constants like modes.CBC(...) or AES.MODE_ECB."""

@@ -6,26 +6,132 @@ spectra/
 │   │   ├── correlator.py
 │   │   ├── mosca.py
 │   │   └── normalizer.py
+│   ├── flattened/
+│   │   ├── batch_0/
+│   │   │   ├── __init__.py
+│   │   │   ├── cli.py
+│   │   │   ├── config.py
+│   │   │   ├── engine___init__.py
+│   │   │   ├── engine___pycache___cbom_builder.cpython-311.pyc
+│   │   │   ├── engine___pycache___correlator.cpython-311.pyc
+│   │   │   ├── engine_cbom_builder.py
+│   │   │   ├── engine_correlator.py
+│   │   │   ├── engine_mosca.py
+│   │   │   └── engine_normalizer.py
+│   │   ├── batch_1/
+│   │   │   ├── engine___pycache_____init__.cpython-311.pyc
+│   │   │   ├── engine___pycache___mosca.cpython-311.pyc
+│   │   │   ├── engine___pycache___normalizer.cpython-311.pyc
+│   │   │   ├── scanners___init__.py
+│   │   │   ├── scanners_artifacts___init__.py
+│   │   │   ├── scanners_artifacts_binary_scanner.py
+│   │   │   ├── scanners_artifacts_cert_scanner.py
+│   │   │   ├── scanners_artifacts_container_scanner.py
+│   │   │   ├── scanners_artifacts_rules_artifact_patterns.yaml
+│   │   │   └── scanners_artifacts_runtime_scanner.py
+│   │   ├── batch_2/
+│   │   │   ├── scanners_artifacts___pycache_____init__.cpython-311.pyc
+│   │   │   ├── scanners_artifacts___pycache___binary_scanner.cpython-311.pyc
+│   │   │   ├── scanners_artifacts___pycache___cert_scanner.cpython-311.pyc
+│   │   │   ├── scanners_artifacts___pycache___container_scanner.cpython-311.pyc
+│   │   │   ├── scanners_artifacts_rules_binary_indicators.yaml
+│   │   │   ├── scanners_artifacts_rules_runtime_patterns.yaml
+│   │   │   ├── scanners_infrastructure_aws_scanner.py
+│   │   │   ├── scanners_infrastructure_hardware_scanner.py
+│   │   │   ├── scanners_infrastructure_iac_scanner.py
+│   │   │   └── scanners_infrastructure_terraform_scanner.py
+│   │   ├── batch_3/
+│   │   │   ├── scanners_infrastructure___init__.py
+│   │   │   ├── scanners_infrastructure___pycache_____init__.cpython-311.pyc
+│   │   │   ├── scanners_infrastructure___pycache___aws_scanner.cpython-311.pyc
+│   │   │   ├── scanners_infrastructure___pycache___hardware_scanner.cpython-311.pyc
+│   │   │   ├── scanners_infrastructure___pycache___iac_scanner.cpython-311.pyc
+│   │   │   ├── scanners_infrastructure___pycache___terraform_scanner.cpython-311.pyc
+│   │   │   ├── scanners_network___init__.py
+│   │   │   ├── scanners_network_endpoint_scanner.py
+│   │   │   ├── scanners_network_nginx_scanner.py
+│   │   │   └── scanners_network_protocol_scanner.py
+│   │   ├── batch_4/
+│   │   │   ├── scanners_network___pycache_____init__.cpython-311.pyc
+│   │   │   ├── scanners_network___pycache___endpoint_scanner.cpython-311.pyc
+│   │   │   ├── scanners_network___pycache___nginx_scanner.cpython-311.pyc
+│   │   │   ├── scanners_network___pycache___protocol_scanner.cpython-311.pyc
+│   │   │   ├── scanners_source_base.py
+│   │   │   ├── scanners_source_cpp_scanner.py
+│   │   │   ├── scanners_source_dependency_scanner.py
+│   │   │   ├── scanners_source_go_scanner.py
+│   │   │   ├── scanners_source_js_ts_scanner.py
+│   │   │   └── scanners_source_jvm_scanner.py
+│   │   ├── batch_5/
+│   │   │   ├── scanners_source___init__.py
+│   │   │   ├── scanners_source_python_scanner.py
+│   │   │   ├── scanners_source_rules.py
+│   │   │   ├── scanners_source_rules_algorithms.yaml
+│   │   │   ├── scanners_source_rules_dependencies.yaml
+│   │   │   ├── scanners_source_rules_libraries_cpp.yaml
+│   │   │   ├── scanners_source_rules_libraries_go.yaml
+│   │   │   ├── scanners_source_rules_libraries_js_ts.yaml
+│   │   │   ├── scanners_source_rules_libraries_jvm.yaml
+│   │   │   └── scanners_source_rust_scanner.py
+│   │   ├── batch_6/
+│   │   │   ├── scanners_source___pycache___base.cpython-311.pyc
+│   │   │   ├── scanners_source___pycache___compiled_src.cpython-311.pyc
+│   │   │   ├── scanners_source___pycache___cpp_scanner.cpython-311.pyc
+│   │   │   ├── scanners_source___pycache___dependency_scanner.cpython-311.pyc
+│   │   │   ├── scanners_source___pycache___go_scanner.cpython-311.pyc
+│   │   │   ├── scanners_source___pycache___js_ts_scanner.cpython-311.pyc
+│   │   │   ├── scanners_source___pycache___jvm_scanner.cpython-311.pyc
+│   │   │   ├── scanners_source___pycache___python_scanner.cpython-311.pyc
+│   │   │   ├── scanners_source_rules_libraries_python.yaml
+│   │   │   └── scanners_source_rules_libraries_rust.yaml
+│   │   ├── batch_7/
+│   │   │   ├── scanners___pycache_____init__.cpython-311.pyc
+│   │   │   ├── scanners_source___pycache_____init__.cpython-311.pyc
+│   │   │   ├── scanners_source___pycache___rules.cpython-311.pyc
+│   │   │   ├── scanners_source___pycache___rust_scanner.cpython-311.pyc
+│   │   │   ├── utils___init__.py
+│   │   │   ├── utils___pycache_____init__.cpython-311.pyc
+│   │   │   ├── utils___pycache___logger.cpython-311.pyc
+│   │   │   ├── utils___pycache___shell.cpython-311.pyc
+│   │   │   ├── utils_logger.py
+│   │   │   └── utils_shell.py
+│   │   └── batch_8/
+│   │       ├── __pycache_____init__.cpython-311.pyc
+│   │       ├── __pycache___cli.cpython-311.pyc
+│   │       └── __pycache___config.cpython-311.pyc
 │   ├── scanners/
 │   │   ├── artifacts/
+│   │   │   ├── rules/
+│   │   │   │   ├── artifact_patterns.yaml
+│   │   │   │   ├── binary_indicators.yaml
+│   │   │   │   ├── container_patterns.yaml
+│   │   │   │   └── runtime_patterns.yaml
 │   │   │   ├── __init__.py
 │   │   │   ├── binary_scanner.py
 │   │   │   ├── cert_scanner.py
-│   │   │   └── container_scanner.py
+│   │   │   ├── container_scanner.py
+│   │   │   └── runtime_scanner.py
 │   │   ├── infrastructure/
+│   │   │   ├── rules/
+│   │   │   │   └── infra_patterns.yaml
 │   │   │   ├── __init__.py
 │   │   │   ├── aws_scanner.py
+│   │   │   ├── azure_scanner.py
 │   │   │   ├── hardware_scanner.py
 │   │   │   ├── iac_scanner.py
 │   │   │   └── terraform_scanner.py
 │   │   ├── network/
+│   │   │   ├── rules/
+│   │   │   │   └── network_indicators.yaml
 │   │   │   ├── __init__.py
 │   │   │   ├── endpoint_scanner.py
 │   │   │   ├── nginx_scanner.py
-│   │   │   └── protocol_scanner.py
+│   │   │   ├── protocol_scanner.py
+│   │   │   └── recon_scanner.py
 │   │   ├── source/
 │   │   │   ├── rules/
 │   │   │   │   ├── algorithms.yaml
+│   │   │   │   ├── dependencies.yaml
 │   │   │   │   ├── libraries_cpp.yaml
 │   │   │   │   ├── libraries_go.yaml
 │   │   │   │   ├── libraries_js_ts.yaml
@@ -35,6 +141,7 @@ spectra/
 │   │   │   ├── __init__.py
 │   │   │   ├── base.py
 │   │   │   ├── cpp_scanner.py
+│   │   │   ├── dependency_scanner.py
 │   │   │   ├── go_scanner.py
 │   │   │   ├── js_ts_scanner.py
 │   │   │   ├── jvm_scanner.py
@@ -49,10 +156,24 @@ spectra/
 │   ├── __init__.py
 │   ├── cli.py
 │   ├── config.py
+│   └── flattener.py
+├── tests/
+│   ├── fixtures/
+│   ├── __init__.py
+│   ├── test_cbom_builder.py
+│   └── test_mosca.py
 ├── .gitignore
 ├── cbom_policy.json
 ├── config.example.yaml
+├── crypto_policy_rules.json
 ├── Dockerfile
+├── helper1.py
 ├── pyproject.toml
 ├── README.md
 ├── requirements.txt
+├── test_2.py
+├── test_3.py
+├── test_4.py
+├── test_5.py
+├── test_6.py
+└── test_ast_integration.py

@@ -120,6 +120,14 @@ class JSTSSParser(BaseSourceScanner):
         except Exception:
             return []
 
+        def _add_finding(finding: SourceFinding, symbol_name: str) -> None:
+            dirs, trans, depth, loc = self.compute_call_metrics(file_path, symbol_name)
+            finding.direct_calls = dirs
+            finding.transitive_calls = trans
+            finding.call_depth = depth
+            finding.loc = loc
+            findings.append(finding)
+
         # 1. Node.js Cipher / Decipher
         for match in NODE_CIPHER_REGEX.finditer(content):
             algo_str = match.group("algo")
@@ -135,7 +143,7 @@ class JSTSSParser(BaseSourceScanner):
                 operation=op
             )
             if finding:
-                findings.append(finding)
+                _add_finding(finding, f"create{match.group('action')}")
 
         # 2. Node.js Hash / HMAC
         for match in NODE_HASH_REGEX.finditer(content):
@@ -152,7 +160,7 @@ class JSTSSParser(BaseSourceScanner):
                 operation=op
             )
             if finding:
-                findings.append(finding)
+                _add_finding(finding, f"create{match.group('type')}")
 
         # 3. Node.js Digital Signatures
         for match in NODE_SIGN_REGEX.finditer(content):
@@ -169,7 +177,7 @@ class JSTSSParser(BaseSourceScanner):
                 operation=op
             )
             if finding:
-                findings.append(finding)
+                _add_finding(finding, f"create{match.group('type')}")
 
         # 4. Node.js KeyPair Generation (RSA, DSA, EC, ED25519)
         for match in NODE_KEYPAIR_REGEX.finditer(content):
@@ -191,30 +199,29 @@ class JSTSSParser(BaseSourceScanner):
                 curve=curve_name
             )
             if finding:
-                findings.append(finding)
+                _add_finding(finding, "generateKeyPair")
 
         # 5. CodeQL Target: Key Deserialization (createPrivateKey / createPublicKey)
         for match in NODE_KEY_LOAD_REGEX.finditer(content):
             kind = match.group("kind")
             line_idx = self._offset_to_line(content, match.start())
             snippet = self.extract_snippet(file_path, line_idx)
-            findings.append(
-                SourceFinding(
-                    source_domain="source_code",
-                    language="js_ts",
-                    file_path=str(file_path.resolve()),
-                    line_number=line_idx,
-                    column_number=match.start(),
-                    code_snippet=snippet,
-                    primitive="key_management",
-                    algorithm="AsymmetricKey",
-                    operation=f"load_{kind.lower()}",
-                    quantum_safe=False,
-                    nist_status="operational",
-                    security_findings=[],
-                    raw_metadata={"method": f"create{kind}"}
-                )
+            finding = SourceFinding(
+                source_domain="source_code",
+                language="js_ts",
+                file_path=str(file_path.resolve()),
+                line_number=line_idx,
+                column_number=match.start(),
+                code_snippet=snippet,
+                primitive="key_management",
+                algorithm="AsymmetricKey",
+                operation=f"load_{kind.lower()}",
+                quantum_safe=False,
+                nist_status="operational",
+                security_findings=[],
+                raw_metadata={"method": f"create{kind}"}
             )
+            _add_finding(finding, f"create{kind}")
 
         # 6. CodeQL Target: TLS Contexts (createSecureContext / createServer)
         for match in TLS_CONTEXT_REGEX.finditer(content):
@@ -230,23 +237,22 @@ class JSTSSParser(BaseSourceScanner):
                 })
 
             snippet = self.extract_snippet(file_path, line_idx)
-            findings.append(
-                SourceFinding(
-                    source_domain="source_code",
-                    language="js_ts",
-                    file_path=str(file_path.resolve()),
-                    line_number=line_idx,
-                    column_number=match.start(),
-                    code_snippet=snippet,
-                    primitive="secure_transport",
-                    algorithm="TLS",
-                    operation="tls_session_init" if "Context" in method else "tls_server_init",
-                    quantum_safe=False,
-                    nist_status="approved",
-                    security_findings=sec_findings,
-                    raw_metadata={"method": method, "options": opts}
-                )
+            finding = SourceFinding(
+                source_domain="source_code",
+                language="js_ts",
+                file_path=str(file_path.resolve()),
+                line_number=line_idx,
+                column_number=match.start(),
+                code_snippet=snippet,
+                primitive="secure_transport",
+                algorithm="TLS",
+                operation="tls_session_init" if "Context" in method else "tls_server_init",
+                quantum_safe=False,
+                nist_status="approved",
+                security_findings=sec_findings,
+                raw_metadata={"method": method, "options": opts}
             )
+            _add_finding(finding, method)
 
         # 7. CodeQL Target: Standalone Operational Calls (sign / verify)
         for match in OP_EXEC_REGEX.finditer(content):
@@ -257,23 +263,22 @@ class JSTSSParser(BaseSourceScanner):
 
             line_idx = self._offset_to_line(content, match.start())
             snippet = self.extract_snippet(file_path, line_idx)
-            findings.append(
-                SourceFinding(
-                    source_domain="source_code",
-                    language="js_ts",
-                    file_path=str(file_path.resolve()),
-                    line_number=line_idx,
-                    column_number=match.start(),
-                    code_snippet=snippet,
-                    primitive="signature",
-                    algorithm="DigitalSignature",
-                    operation="digital_signature" if method == "sign" else "signature_verification",
-                    quantum_safe=False,
-                    nist_status="operational",
-                    security_findings=[],
-                    raw_metadata={"receiver": rec, "method": method}
-                )
+            finding = SourceFinding(
+                source_domain="source_code",
+                language="js_ts",
+                file_path=str(file_path.resolve()),
+                line_number=line_idx,
+                column_number=match.start(),
+                code_snippet=snippet,
+                primitive="signature",
+                algorithm="DigitalSignature",
+                operation="digital_signature" if method == "sign" else "signature_verification",
+                quantum_safe=False,
+                nist_status="operational",
+                security_findings=[],
+                raw_metadata={"receiver": rec, "method": method}
             )
+            _add_finding(finding, method)
 
         # 8. Node.js ECDH
         for match in NODE_ECDH_REGEX.finditer(content):
@@ -290,7 +295,7 @@ class JSTSSParser(BaseSourceScanner):
                 curve=canonical_curve
             )
             if finding:
-                findings.append(finding)
+                _add_finding(finding, "createECDH")
 
         # 9. WebCrypto Subtle Calls
         for match in WEBCRYPTO_SUBTLE_REGEX.finditer(content):
@@ -313,7 +318,7 @@ class JSTSSParser(BaseSourceScanner):
                 curve=curve_name
             )
             if finding:
-                findings.append(finding)
+                _add_finding(finding, method)
 
         # 10. CryptoJS Invocations
         for match in CRYPTO_JS_REGEX.finditer(content):
@@ -332,7 +337,7 @@ class JSTSSParser(BaseSourceScanner):
                 mode=mode
             )
             if finding:
-                findings.append(finding)
+                _add_finding(finding, algo_str)
 
         # 11. Node Forge
         for match in FORGE_REGEX.finditer(content):
@@ -351,6 +356,8 @@ class JSTSSParser(BaseSourceScanner):
                     operation="keypair_generation",
                     key_size=key_size
                 )
+                if finding:
+                    _add_finding(finding, "generateKeyPair")
             else:
                 md_name = match.group("md") or "sha256"
                 finding = self._build_finding_from_token(
@@ -361,8 +368,8 @@ class JSTSSParser(BaseSourceScanner):
                     default_primitive="hash",
                     operation="digest_computation"
                 )
-            if finding:
-                findings.append(finding)
+                if finding:
+                    _add_finding(finding, md_name)
 
         # 12. Modern Noble / TweetNaCl
         for match in MODERN_ECC_REGEX.finditer(content):
@@ -380,7 +387,7 @@ class JSTSSParser(BaseSourceScanner):
                 curve=curve
             )
             if finding:
-                findings.append(finding)
+                _add_finding(finding, lib_str.split(".")[0])
 
         # 13. CSPRNG (getRandomValues / randomBytes)
         for match in CSPRNG_REGEX.finditer(content):
@@ -394,32 +401,31 @@ class JSTSSParser(BaseSourceScanner):
                 operation="secure_random"
             )
             if finding:
-                findings.append(finding)
+                _add_finding(finding, "randomBytes")
 
         # 14. Math.random() in potential security context
         for match in MATH_RANDOM_REGEX.finditer(content):
             line_idx = self._offset_to_line(content, match.start())
             snippet = self.extract_snippet(file_path, line_idx)
-            findings.append(
-                SourceFinding(
-                    source_domain="source_code",
-                    language="js_ts",
-                    file_path=str(file_path.resolve()),
-                    line_number=line_idx,
-                    column_number=match.start(),
-                    code_snippet=snippet,
-                    primitive="prng",
-                    algorithm="Math.random",
-                    operation="insecure_random",
-                    quantum_safe=False,
-                    nist_status="broken_classical",
-                    security_findings=[{
-                        "issue": "Non-cryptographic PRNG (Math.random) used in source code",
-                        "severity": "HIGH"
-                    }],
-                    raw_metadata={"token": "Math.random"}
-                )
+            finding = SourceFinding(
+                source_domain="source_code",
+                language="js_ts",
+                file_path=str(file_path.resolve()),
+                line_number=line_idx,
+                column_number=match.start(),
+                code_snippet=snippet,
+                primitive="prng",
+                algorithm="Math.random",
+                operation="insecure_random",
+                quantum_safe=False,
+                nist_status="broken_classical",
+                security_findings=[{
+                    "issue": "Non-cryptographic PRNG (Math.random) used in source code",
+                    "severity": "HIGH"
+                }],
+                raw_metadata={"token": "Math.random"}
             )
+            _add_finding(finding, "random")
 
         # 15. JWT, JOSE, Bcrypt, Argon2, HKDF
         for match in JWT_KDF_REGEX.finditer(content):
@@ -455,7 +461,7 @@ class JSTSSParser(BaseSourceScanner):
                 op = "key_derivation"
                 q_safe = False
 
-            findings.append(SourceFinding(
+            finding = SourceFinding(
                 source_domain="source_code",
                 language="js_ts",
                 file_path=str(file_path.resolve()),
@@ -469,7 +475,8 @@ class JSTSSParser(BaseSourceScanner):
                 nist_status="approved",
                 security_findings=[],
                 raw_metadata={"js_call": match.group(0)}
-            ))
+            )
+            _add_finding(finding, method or algo)
 
         return findings
 

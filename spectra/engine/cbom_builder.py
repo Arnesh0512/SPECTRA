@@ -130,7 +130,7 @@ class CBOMBuilder:
         asset: Any,
         mosca: Optional[MoscaEvaluation],
     ) -> Dict[str, Any]:
-        """Constructs a component with CycloneDX 1.6 cryptoProperties."""
+        """Constructs a component with CycloneDX 1.6 cryptoProperties and quantitative Y metrics."""
         component_type = "cryptographic-asset"
 
         crypto_prop: Dict[str, Any] = {
@@ -156,11 +156,16 @@ class CBOMBuilder:
         if asset.curve:
             crypto_prop["algorithmProperties"]["curve"] = asset.curve
 
-        # Quantum risk & NIST metadata
+        # Quantum risk, NIST metadata, and call graph metric properties
         crypto_prop["properties"] = [
             {"name": "crypto:quantumSafe", "value": str(asset.quantum_safe).lower()},
             {"name": "crypto:shorVulnerable", "value": str(asset.shor_vulnerable).lower()},
             {"name": "crypto:nistStatus", "value": str(asset.nist_status)},
+            {"name": "crypto:directCalls", "value": str(asset.direct_calls)},
+            {"name": "crypto:transitiveCalls", "value": str(asset.transitive_calls)},
+            {"name": "crypto:callDepth", "value": str(asset.call_depth)},
+            {"name": "crypto:loc", "value": str(asset.loc)},
+            {"name": "crypto:isUpstreamDependency", "value": str(asset.is_upstream_dependency).lower()},
         ]
 
         # Ingest scanner context (language, operation) without emitting literal 'None'

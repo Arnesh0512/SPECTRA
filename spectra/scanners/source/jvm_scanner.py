@@ -60,6 +60,14 @@ class JVMScanner(BaseSourceScanner):
         except Exception:
             return []
 
+        def _add_finding(finding: SourceFinding, symbol_name: str) -> None:
+            dirs, trans, depth, loc = self.compute_call_metrics(file_path, symbol_name)
+            finding.direct_calls = dirs
+            finding.transitive_calls = trans
+            finding.call_depth = depth
+            finding.loc = loc
+            findings.append(finding)
+
         # Local state to correlate variables with algorithms
         var_to_algo: Dict[str, str] = {}
 
@@ -82,7 +90,7 @@ class JVMScanner(BaseSourceScanner):
                     spec=spec_str
                 )
                 if finding:
-                    findings.append(finding)
+                    _add_finding(finding, "getInstance")
 
                     # Extract variable assignment: Cipher c = Cipher.getInstance(...)
                     assign_match = re.search(rf'([a-zA-Z0-9_]+)\s*=\s*{class_name}\.getInstance', line)
@@ -104,23 +112,22 @@ class JVMScanner(BaseSourceScanner):
                     })
 
                 snippet = self.extract_snippet(file_path, line_idx)
-                findings.append(
-                    SourceFinding(
-                        source_domain="source_code",
-                        language="jvm",
-                        file_path=str(file_path.resolve()),
-                        line_number=line_idx,
-                        column_number=col,
-                        code_snippet=snippet,
-                        primitive="public_key",
-                        algorithm=associated_algo,
-                        key_size=key_size,
-                        quantum_safe=False,
-                        nist_status="deprecated_pqc" if "RSA" in associated_algo else "unknown",
-                        security_findings=sec_findings,
-                        raw_metadata={"caller": var_name, "key_size": key_size}
-                    )
+                jvm_init_finding = SourceFinding(
+                    source_domain="source_code",
+                    language="jvm",
+                    file_path=str(file_path.resolve()),
+                    line_number=line_idx,
+                    column_number=col,
+                    code_snippet=snippet,
+                    primitive="public_key",
+                    algorithm=associated_algo,
+                    key_size=key_size,
+                    quantum_safe=False,
+                    nist_status="deprecated_pqc" if "RSA" in associated_algo else "unknown",
+                    security_findings=sec_findings,
+                    raw_metadata={"caller": var_name, "key_size": key_size}
                 )
+                _add_finding(jvm_init_finding, "initialize")
 
             # 3. Elliptic Curve Parameter Specs: new ECGenParameterSpec("secp256r1")
             for match in EC_SPEC_REGEX.finditer(line):
@@ -136,23 +143,22 @@ class JVMScanner(BaseSourceScanner):
                     })
 
                 snippet = self.extract_snippet(file_path, line_idx)
-                findings.append(
-                    SourceFinding(
-                        source_domain="source_code",
-                        language="jvm",
-                        file_path=str(file_path.resolve()),
-                        line_number=line_idx,
-                        column_number=col,
-                        code_snippet=snippet,
-                        primitive="public_key",
-                        algorithm="ECC",
-                        curve=canonical_curve,
-                        quantum_safe=False,
-                        nist_status="deprecated_pqc",
-                        security_findings=sec_findings,
-                        raw_metadata={"raw_curve": raw_curve}
-                    )
+                ec_spec_finding = SourceFinding(
+                    source_domain="source_code",
+                    language="jvm",
+                    file_path=str(file_path.resolve()),
+                    line_number=line_idx,
+                    column_number=col,
+                    code_snippet=snippet,
+                    primitive="public_key",
+                    algorithm="ECC",
+                    curve=canonical_curve,
+                    quantum_safe=False,
+                    nist_status="deprecated_pqc",
+                    security_findings=sec_findings,
+                    raw_metadata={"raw_curve": raw_curve}
                 )
+                _add_finding(ec_spec_finding, "ECGenParameterSpec")
 
             # 4. CodeQL Operations: obj.sign(), obj.verify(), obj.doFinal()
             for match in METHOD_CALL_REGEX.finditer(line):
@@ -166,23 +172,22 @@ class JVMScanner(BaseSourceScanner):
                     op_name = self._map_method_to_operation(method_name)
                     snippet = self.extract_snippet(file_path, line_idx)
 
-                    findings.append(
-                        SourceFinding(
-                            source_domain="source_code",
-                            language="jvm",
-                            file_path=str(file_path.resolve()),
-                            line_number=line_idx,
-                            column_number=col,
-                            code_snippet=snippet,
-                            primitive="cryptographic_operation",
-                            algorithm=associated_algo,
-                            operation=op_name,
-                            quantum_safe=False,
-                            nist_status="operational",
-                            security_findings=[],
-                            raw_metadata={"method_call": method_name, "receiver": var_name}
-                        )
+                    method_call_finding = SourceFinding(
+                        source_domain="source_code",
+                        language="jvm",
+                        file_path=str(file_path.resolve()),
+                        line_number=line_idx,
+                        column_number=col,
+                        code_snippet=snippet,
+                        primitive="cryptographic_operation",
+                        algorithm=associated_algo,
+                        operation=op_name,
+                        quantum_safe=False,
+                        nist_status="operational",
+                        security_findings=[],
+                        raw_metadata={"method_call": method_name, "receiver": var_name}
                     )
+                    _add_finding(method_call_finding, method_name)
 
             # 5. Direct Bouncy Castle PQC Instantiations
             for match in BC_PQC_REGEX.finditer(line):
@@ -190,7 +195,7 @@ class JVMScanner(BaseSourceScanner):
                 col = match.start()
                 finding = self._process_bc_pqc_finding(file_path, line_idx, col, class_name)
                 if finding:
-                    findings.append(finding)
+                    _add_finding(finding, class_name)
 
         return findings
 
