@@ -1,0 +1,35 @@
+schema_version: "1.0"
+description: "Declarative infrastructure resource filters, HSM library paths, and hardware/Cloud indicator patterns."
+
+terraform_resources:
+  - "aws_kms_key"
+  - "tls_private_key"
+  - "tls_self_signed_cert"
+  - "tls_locally_signed_cert"
+  - "aws_acm_certificate"
+
+kubernetes_resources:
+  - "Secret"
+  - "Ingress"
+
+cloudformation_resources:
+  - "AWS::KMS::Key"
+  - "AWS::CertificateManager::Certificate"
+
+pkcs11_libraries:
+  - "/usr/lib/softhsm/libsofthsm2.so"
+  - "/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so"
+  - "/usr/local/lib/softhsm/libsofthsm2.so"
+  - "/opt/cloudhsm/lib/libcloudhsm_pkcs11.so"
+  - "/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so"
+  - "/usr/lib/opensc-pkcs11.so"
+  - "/usr/local/lib/opensc-pkcs11.so"
+  - "/usr/lib/libykcs11.so"
+
+cpu_crypto_flags:
+  - "aes"
+  - "sha_ni"
+  - "sha1"
+  - "sha2"
+  - "pmull"
+  - "avx512f"

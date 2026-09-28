@@ -2,14 +2,14 @@
 spectra.scanners.infrastructure.terraform_scanner
 ======================================================
 Static scanner for Terraform (.tf) files.
-Inspects cryptographic resource definitions including aws_kms_key,
-tls_private_key, tls_self_signed_cert, and aws_acm_certificate.
+Loaded via rules/infra_patterns.yaml.
 """
 
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
+import yaml
 
 
 @dataclass
@@ -53,15 +53,25 @@ RESOURCE_BLOCK_REGEX = re.compile(
 
 
 class TerraformScanner:
-    """Discovers cryptographic configurations within Terraform (.tf) definitions."""
+    """Discovers cryptographic configurations within Terraform (.tf) definitions using rules/infra_patterns.yaml."""
 
-    SUPPORTED_RESOURCES = {
-        "aws_kms_key",
-        "tls_private_key",
-        "tls_self_signed_cert",
-        "tls_locally_signed_cert",
-        "aws_acm_certificate",
-    }
+    def __init__(self, rules_file: Optional[Path] = None):
+        if rules_file is None:
+            rules_file = Path(__file__).parent / "rules" / "infra_patterns.yaml"
+        self.rules = self._load_rules(rules_file)
+        self.supported_resources = set(self.rules.get("terraform_resources", [
+            "aws_kms_key", "tls_private_key", "tls_self_signed_cert",
+            "tls_locally_signed_cert", "aws_acm_certificate"
+        ]))
+
+    def _load_rules(self, path: Path) -> Dict[str, Any]:
+        if not path.is_file():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {}
 
     def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[TerraformFinding]:
         findings: List[TerraformFinding] = []
@@ -89,7 +99,7 @@ class TerraformScanner:
         for match in RESOURCE_BLOCK_REGEX.finditer(content):
             res_type = match.group("type")
             res_name = match.group("name")
-            if res_type not in self.SUPPORTED_RESOURCES:
+            if res_type not in self.supported_resources:
                 continue
 
             # Calculate line number
@@ -112,7 +122,6 @@ class TerraformScanner:
         return findings
 
     def _extract_block_body(self, content: str, start_index: int) -> str:
-        """Extracts the balanced body between curly braces for the resource."""
         brace_depth = 1
         body_chars = []
         for char in content[start_index:]:
@@ -126,12 +135,7 @@ class TerraformScanner:
         return "".join(body_chars)
 
     def _evaluate_resource(
-        self,
-        file_path: Path,
-        line_no: int,
-        res_type: str,
-        res_name: str,
-        body: str
+        self, file_path: Path, line_no: int, res_type: str, res_name: str, body: str
     ) -> Optional[TerraformFinding]:
         sec_findings = []
         algo = "unknown"
@@ -198,9 +202,9 @@ class TerraformScanner:
             if validity_match:
                 hours = int(validity_match.group(1))
                 raw_meta["validity_period_hours"] = hours
-                if hours > 8760 * 2:  # > 2 years
+                if hours > 8760 * 2:
                     sec_findings.append({
-                        "issue": f"Excessive certificate validity duration: {hours} hours (~{hours//8760} years)",
+                        "issue": f"Excessive certificate validity duration: {hours} hours",
                         "severity": "LOW"
                     })
 

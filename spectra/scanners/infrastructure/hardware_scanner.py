@@ -1,9 +1,8 @@
 """
 spectra.scanners.infrastructure.hardware_scanner
 =====================================================
-Discovers and audits hardware-level cryptographic assets and accelerators:
-Hardware Security Modules (HSM / PKCS#11), Trusted Platform Modules (TPM),
-and CPU instruction set extensions (AES-NI, SHA-NI, ARM Cryptography Extensions).
+Discovers and audits hardware-level cryptographic assets and accelerators.
+Loaded via rules/infra_patterns.yaml.
 """
 
 from dataclasses import dataclass, field
@@ -11,6 +10,7 @@ from pathlib import Path
 import platform
 import re
 from typing import Any, Dict, List, Optional
+import yaml
 
 from spectra.utils.shell import command_exists, run_command
 
@@ -20,7 +20,7 @@ class HardwareFinding:
     """Represents a discovered hardware cryptographic device or capability."""
     source_domain: str = "infrastructure"
     infra_provider: str = "hardware"
-    device_type: str = "unknown"  # tpm, hsm, cpu_accelerator
+    device_type: str = "unknown"
     device_name: str = ""
     status: str = "active"
     algorithm: str = "hardware_crypto"
@@ -44,21 +44,28 @@ class HardwareFinding:
         }
 
 
-# Standard paths for PKCS#11 shared libraries across Linux / macOS distributions
-KNOWN_PKCS11_LIBS = [
-    "/usr/lib/softhsm/libsofthsm2.so",
-    "/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so",
-    "/usr/local/lib/softhsm/libsofthsm2.so",
-    "/opt/cloudhsm/lib/libcloudhsm_pkcs11.so",
-    "/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so",
-    "/usr/lib/opensc-pkcs11.so",
-    "/usr/local/lib/opensc-pkcs11.so",
-    "/usr/lib/libykcs11.so",  # YubiKey PKCS#11
-]
-
-
 class HardwareScanner:
-    """Probes host environment for hardware security modules, TPMs, and CPU acceleration."""
+    """Probes host environment for hardware security modules using rules/infra_patterns.yaml."""
+
+    def __init__(self, rules_file: Optional[Path] = None):
+        if rules_file is None:
+            rules_file = Path(__file__).parent / "rules" / "infra_patterns.yaml"
+        self.rules = self._load_rules(rules_file)
+        self.pkcs11_libs = self.rules.get("pkcs11_libraries", [
+            "/usr/lib/softhsm/libsofthsm2.so",
+            "/opt/cloudhsm/lib/libcloudhsm_pkcs11.so",
+            "/usr/lib/opensc-pkcs11.so"
+        ])
+        self.cpu_flags = self.rules.get("cpu_crypto_flags", ["aes", "sha_ni", "sha1", "sha2"])
+
+    def _load_rules(self, path: Path) -> Dict[str, Any]:
+        if not path.is_file():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {}
 
     def scan(self) -> List[HardwareFinding]:
         """Runs hardware audit checks across TPM, HSM libraries, and CPU crypto instructions."""
@@ -73,11 +80,8 @@ class HardwareScanner:
         tpm_class_path = Path("/sys/class/tpm")
 
         if tpm_class_path.exists():
-            devices = list(tpm_class_path.glob("tpm*"))
-            for dev in devices:
-                dev_name = dev.name
+            for dev in tpm_class_path.glob("tpm*"):
                 tpm_version = "TPM 2.0"
-                # Check description/version if exposed by sysfs
                 desc_path = dev / "device/description"
                 if desc_path.exists():
                     try:
@@ -95,10 +99,8 @@ class HardwareScanner:
                     })
 
                 findings.append(HardwareFinding(
-                    source_domain="infrastructure",
-                    infra_provider="hardware",
                     device_type="tpm",
-                    device_name=f"{dev_name} ({tpm_version})",
+                    device_name=f"{dev.name} ({tpm_version})",
                     status="present",
                     algorithm="RSA-2048 / ECC-NIST-P256",
                     quantum_safe=False,
@@ -106,12 +108,8 @@ class HardwareScanner:
                     security_findings=sec_findings,
                     raw_metadata={"sysfs_path": str(dev), "version": tpm_version}
                 ))
-
-        # Check /dev/tpmrm0 (TPM 2.0 Resource Manager device node)
         elif Path("/dev/tpmrm0").exists():
             findings.append(HardwareFinding(
-                source_domain="infrastructure",
-                infra_provider="hardware",
                 device_type="tpm",
                 device_name="TPM 2.0 Resource Manager (/dev/tpmrm0)",
                 status="present",
@@ -126,8 +124,7 @@ class HardwareScanner:
 
     def _scan_pkcs11_hsms(self) -> List[HardwareFinding]:
         findings: List[HardwareFinding] = []
-
-        for lib_path_str in KNOWN_PKCS11_LIBS:
+        for lib_path_str in self.pkcs11_libs:
             lib_path = Path(lib_path_str)
             if lib_path.exists():
                 provider_name = "PKCS#11 Module"
@@ -137,12 +134,8 @@ class HardwareScanner:
                     provider_name = "SoftHSM2"
                 elif "opensc" in lib_path_str.lower():
                     provider_name = "OpenSC SmartCard / HSM"
-                elif "ykcs11" in lib_path_str.lower():
-                    provider_name = "YubiKey PKCS#11"
 
                 findings.append(HardwareFinding(
-                    source_domain="infrastructure",
-                    infra_provider="hardware",
                     device_type="hsm",
                     device_name=f"{provider_name} ({lib_path.name})",
                     status="library_installed",
@@ -162,38 +155,23 @@ class HardwareScanner:
 
         if system == "Linux" and Path("/proc/cpuinfo").exists():
             try:
-                with open("/proc/cpuinfo", "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-                # Find flags / Features line
+                content = Path("/proc/cpuinfo").read_text(encoding="utf-8", errors="ignore")
                 flags_match = re.search(r"^(?:flags|Features)\s*:\s*(.+)$", content, re.MULTILINE)
                 if flags_match:
                     raw_flags = flags_match.group(1).split()
-                    for target_flag in ["aes", "sha_ni", "sha1", "sha2", "pmull", "avx512f"]:
+                    for target_flag in self.cpu_flags:
                         if target_flag in raw_flags:
                             cpu_features.append(target_flag)
             except Exception:
                 pass
 
-        elif system == "Darwin" and command_exists("sysctl"):
-            code, stdout, _ = run_command(["sysctl", "-a"])
-            if code == 0:
-                for line in stdout.splitlines():
-                    if "hw.optional.arm.FEAT_AES" in line and ": 1" in line:
-                        cpu_features.append("arm_feat_aes")
-                    elif "hw.optional.arm.FEAT_SHA256" in line and ": 1" in line:
-                        cpu_features.append("arm_feat_sha256")
-                    elif "hw.optional.avx512" in line and ": 1" in line:
-                        cpu_features.append("avx512")
-
         if cpu_features:
             findings.append(HardwareFinding(
-                source_domain="infrastructure",
-                infra_provider="hardware",
                 device_type="cpu_accelerator",
                 device_name=f"CPU Cryptographic Extensions ({platform.processor() or platform.machine()})",
                 status="active",
                 algorithm="Hardware-Accelerated AES / SHA",
-                quantum_safe=True,  # Symmetric/hash instructions remain quantum-resistant
+                quantum_safe=True,
                 shor_vulnerable=False,
                 security_findings=[],
                 raw_metadata={"features": cpu_features}
