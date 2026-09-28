@@ -1,14 +1,17 @@
+
 """
 spectra.engine.mosca
 =========================
 Quantum risk evaluation engine applying Michele Mosca's Theorem:
 If (X + Y > Z), the system is vulnerable to quantum compromise before
-post-quantum remediation can be completed.
+post-quantum remediation can be completed. Loaded via cbom_policy.json.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import datetime
+from pathlib import Path
+import json
 
 from .normalizer import NormalizedCryptoAsset
 
@@ -22,7 +25,7 @@ class MoscaEvaluation:
     migration_time_y: int  # Time needed to migrate to PQC (years)
     quantum_threshold_z: int  # Estimated years until CRQC viability
     is_inequality_breached: bool  # True if (X + Y > Z)
-    risk_level: str  # CRITICAL, HIGH, MEDIUM, LOW, QUANTUM_SAFE, LEGACY_INSECURE
+    risk_level: str  # CRITICAL, HIGH, MEDIUM, LOW, QUANTUM_SAFE
     sndl_vulnerable: bool  # Store Now, Decrypt Later susceptibility
     recommended_pqc_replacement: str
     rationale: str
@@ -42,42 +45,28 @@ class MoscaEvaluation:
         }
 
 
-# Industry consensus default estimates (in years)
-DEFAULT_CRQC_TARGET_YEAR = 2033  # Consensus target for CRQC risk models
-DEFAULT_SHELF_LIFE_YEARS = 7     # Typical enterprise data retention horizon
-DEFAULT_MIGRATION_YEARS = 3      # Typical migration timeline for systems
-
-
-# PQC Algorithm standard recommendations
-PQC_MAPPING = {
-    "RSA": "ML-KEM-768 (FIPS 203) or ML-DSA-65 (FIPS 204)",
-    "ECDSA": "ML-DSA-65 (FIPS 204) or SLH-DSA-SHA2-128s (FIPS 205)",
-    "ECC": "ML-KEM-768 (FIPS 203) or ML-DSA-65 (FIPS 204)",
-    "ECDH": "ML-KEM-768 (FIPS 203)",
-    "ECDHE": "X25519MLKEM768 (Hybrid Post-Quantum)",
-    "DSA": "ML-DSA-65 (FIPS 204)",
-    "ED25519": "ML-DSA-65 (FIPS 204) or SLH-DSA-128s (FIPS 205)",
-    "X25519": "ML-KEM-768 (FIPS 203) or X25519MLKEM768",
-    "ED448": "ML-DSA-87 (FIPS 204)",
-    "X448": "ML-KEM-1024 (FIPS 203)",
-    "DH": "ML-KEM-768 (FIPS 203)",
-    "AES-128": "AES-256 (Grover quantum search resistance)",
-    "AES-192": "AES-256",
-}
-
-
 class MoscaRiskEngine:
-    """Evaluates quantum risk exposure across cryptographic assets using Mosca's inequality."""
+    """Evaluates quantum risk exposure across cryptographic assets using Mosca's inequality and cbom_policy.json."""
 
-    def __init__(
-        self,
-        target_crqc_year: int = DEFAULT_CRQC_TARGET_YEAR,
-        default_shelf_life: int = DEFAULT_SHELF_LIFE_YEARS,
-        default_migration_time: int = DEFAULT_MIGRATION_YEARS,
-    ):
-        self.target_crqc_year = target_crqc_year
-        self.default_shelf_life = default_shelf_life
-        self.default_migration_time = default_migration_time
+    def __init__(self, policy_file: Optional[Path] = None):
+        if policy_file is None:
+            policy_file = Path(__file__).resolve().parent.parent.parent / "cbom_policy.json"
+        self.policy = self._load_policy(policy_file)
+        
+        scenarios = self.policy.get("crqc_arrival_scenarios", {"pessimistic": 2033})
+        self.target_crqc_year = scenarios.get("pessimistic", 2033)
+        self.default_shelf_life = 7
+        self.default_migration_time = 3
+        self.algorithm_risks = self.policy.get("algorithm_risk_definitions", {})
+
+    def _load_policy(self, path: Path) -> Dict[str, Any]:
+        if not path.is_file():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f) or {}
+        except Exception:
+            return {}
 
     def evaluate_asset(self, asset: NormalizedCryptoAsset) -> MoscaEvaluation:
         """Applies Mosca's theorem to a single normalized crypto asset."""
@@ -86,101 +75,40 @@ class MoscaRiskEngine:
         x = self.default_shelf_life
         y = self.default_migration_time
 
-        # Detect classical break or deprecation
-        has_critical_finding = any(f.get("severity") == "CRITICAL" for f in asset.security_findings)
-        is_classically_broken = (
-            asset.nist_status in ["broken_classical", "deprecated_classical"]
-            or has_critical_finding
-        )
-
-        if is_classically_broken and not asset.shor_vulnerable:
-            return MoscaEvaluation(
-                asset_id=asset.asset_id,
-                algorithm=asset.algorithm,
-                shelf_life_x=x,
-                migration_time_y=y,
-                quantum_threshold_z=z,
-                is_inequality_breached=False,
-                risk_level="HIGH",
-                sndl_vulnerable=False,
-                recommended_pqc_replacement="Remediate classical vulnerability (upgrade to TLS 1.3 / secure cipher)",
-                rationale="Asset is already broken or deprecated under classical cryptanalysis."
-            )
-
-        # Quantum-safe assets bypass inequality
         if asset.quantum_safe or not asset.shor_vulnerable:
             return MoscaEvaluation(
-                asset_id=asset.asset_id,
-                algorithm=asset.algorithm,
-                shelf_life_x=x,
-                migration_time_y=0,
-                quantum_threshold_z=z,
-                is_inequality_breached=False,
-                risk_level="QUANTUM_SAFE",
-                sndl_vulnerable=False,
-                recommended_pqc_replacement="None (Already Post-Quantum or Grover-Resistant)",
-                rationale="Asset is inherently quantum-resistant or utilizes NIST-approved PQC primitives."
+                asset_id=asset.asset_id, algorithm=asset.algorithm,
+                shelf_life_x=x, migration_time_y=0, quantum_threshold_z=z,
+                is_inequality_breached=False, risk_level="QUANTUM_SAFE",
+                sndl_vulnerable=False, recommended_pqc_replacement="None (Quantum Safe)",
+                rationale="Asset is inherently quantum-resistant."
             )
 
         # Classical asymmetric primitives are vulnerable to Shor's algorithm
         breached = (x + y) > z
-        
-        sndl_primitives = {
-            "key_exchange",
-            "key_agreement",
-            "key_encapsulation",
-            "public_key_encryption",
-            "key_exchange_and_transport",
-            "key_management",
-            "asymmetric_encryption",
-            "secure_transport"
-        }
-        
         algo_upper = asset.algorithm.upper()
-        sndl_algo_indicators = {"ECDH", "DH", "DIFFIE", "X25519", "X448", "KEM", "KYBER"}
         
-        sndl = (
-            asset.primitive.lower() in sndl_primitives
-            or any(ind in algo_upper for ind in sndl_algo_indicators)
-        )
+        risk_def = self.algorithm_risks.get(algo_upper, {})
+        base_severity = risk_def.get("severity", "HIGH")
+        replacement = risk_def.get("replacement", "ML-KEM-768 / ML-DSA-65")
+
+        sndl = any(ind in algo_upper for ind in ["ECDH", "DH", "RSA", "ECC", "X25519", "KEM", "KYBER"])
 
         if breached and sndl:
             risk = "CRITICAL"
-            rationale = (
-                f"Mosca inequality breached ({x} + {y} > {z}). Asset is vulnerable to "
-                "Store-Now-Decrypt-Later (SNDL) attacks. Classical key exchange or encryption "
-                "can be recorded now and decrypted once a CRQC is realized."
-            )
+            rationale = f"Mosca inequality breached ({x} + {y} > {z}). Vulnerable to Store-Now-Decrypt-Later (SNDL) attacks."
         elif breached:
-            risk = "HIGH"
-            rationale = (
-                f"Mosca inequality breached ({x} + {y} > {z}). Asset authentication or signatures "
-                "will fail quantum integrity checks before migration can be completed."
-            )
+            risk = base_severity
+            rationale = f"Mosca inequality breached ({x} + {y} > {z}). Signatures or keys vulnerable before migration."
         else:
             risk = "MEDIUM"
-            rationale = (
-                f"Mosca inequality currently holds ({x} + {y} <= {z}), but proactive migration "
-                "to post-quantum algorithms must begin to prevent future breach."
-            )
-
-        # Determine replacement algorithm
-        replacement = "ML-KEM-768 / ML-DSA-65"
-        for k, v in PQC_MAPPING.items():
-            if k in algo_upper:
-                replacement = v
-                break
+            rationale = f"Mosca inequality currently holds ({x} + {y} <= {z}), but migration should be planned."
 
         return MoscaEvaluation(
-            asset_id=asset.asset_id,
-            algorithm=asset.algorithm,
-            shelf_life_x=x,
-            migration_time_y=y,
-            quantum_threshold_z=z,
-            is_inequality_breached=breached,
-            risk_level=risk,
-            sndl_vulnerable=sndl,
-            recommended_pqc_replacement=replacement,
+            asset_id=asset.asset_id, algorithm=asset.algorithm,
+            shelf_life_x=x, migration_time_y=y, quantum_threshold_z=z,
+            is_inequality_breached=breached, risk_level=risk,
+            sndl_vulnerable=sndl, recommended_pqc_replacement=replacement or "ML-KEM-768",
             rationale=rationale
         )
 

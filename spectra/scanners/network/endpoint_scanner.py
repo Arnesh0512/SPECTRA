@@ -4,13 +4,16 @@ spectra.scanners.network.endpoint_scanner
 Live network endpoint TLS handshake scanner.
 Negotiates TLS connections against remote host:port targets to inspect negotiated
 ciphers, protocol versions, server certificates, and Shor vulnerability.
+Loaded via rules/network_indicators.yaml.
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 import socket
 import ssl
+import yaml
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -64,10 +67,23 @@ class NetworkEndpointFinding:
 
 
 class EndpointScanner:
-    """Performs TLS handshakes to determine negotiated cryptographic parameters."""
+    """Performs TLS handshakes to determine negotiated cryptographic parameters using rules/network_indicators.yaml."""
 
-    def __init__(self, timeout: int = 5):
+    def __init__(self, timeout: int = 5, rules_file: Optional[Path] = None):
         self.timeout = timeout
+        if rules_file is None:
+            rules_file = Path(__file__).parent / "rules" / "network_indicators.yaml"
+        self.rules = self._load_rules(rules_file)
+        self.insecure_tls_versions = set(self.rules.get("insecure_tls_versions", ["SSLv2", "SSLv3", "TLSv1", "TLSv1.1"]))
+
+    def _load_rules(self, path: Path) -> Dict[str, Any]:
+        if not path.is_file():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {}
 
     def scan_endpoint(self, host: str, port: int = 443) -> Optional[NetworkEndpointFinding]:
         """Connects to host:port via TLS, extracts negotiated parameters and certificate chain."""
@@ -79,7 +95,7 @@ class EndpointScanner:
             with socket.create_connection((host, port), timeout=self.timeout) as sock:
                 with context.wrap_socket(sock, server_hostname=host) as ssock:
                     tls_version = ssock.version() or "unknown"
-                    cipher_info = ssock.cipher()  # (name, protocol_version, bits)
+                    cipher_info = ssock.cipher()
                     cipher_suite = cipher_info[0] if cipher_info else "unknown"
 
                     der_cert = ssock.getpeercert(binary_form=True)
@@ -101,8 +117,7 @@ class EndpointScanner:
     ) -> NetworkEndpointFinding:
         sec_findings = []
 
-        # 1. Protocol version checks
-        if tls_version in ["SSLv2", "SSLv3", "TLSv1", "TLSv1.1"]:
+        if tls_version in self.insecure_tls_versions:
             sec_findings.append({
                 "issue": f"Deprecated and insecure protocol negotiated: {tls_version}",
                 "severity": "CRITICAL"

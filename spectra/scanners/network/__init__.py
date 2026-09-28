@@ -2,8 +2,8 @@
 spectra.scanners.network
 =============================
 Coordinates discovery and auditing of network cryptography:
-Active TLS handshakes (endpoint_scanner), static web server configurations (nginx_scanner),
-and protocol parameters (protocol_scanner).
+Active TLS handshakes, static web server configurations, protocol parameters,
+and low-impact DNS/port/SSH network reconnaissance.
 """
 
 from pathlib import Path
@@ -15,24 +15,21 @@ from spectra.utils.logger import log_info, log_step
 from .endpoint_scanner import EndpointScanner, NetworkEndpointFinding
 from .nginx_scanner import NginxFinding, NginxScanner
 from .protocol_scanner import ProtocolFinding, ProtocolScanner
+from .recon_scanner import NetworkReconFinding, NetworkReconScanner
 
 
 class NetworkScanOrchestrator:
-    """Dispatches static network configuration audits and live endpoint handshakes."""
+    """Dispatches static network configuration audits, live endpoint handshakes, and network reconnaissance."""
 
     def __init__(self, config: ScanConfig):
         self.config = config
         self.endpoint_scanner = EndpointScanner()
         self.nginx_scanner = NginxScanner()
         self.protocol_scanner = ProtocolScanner()
+        self.recon_scanner = NetworkReconScanner()
 
     def scan(self, target_dir: Optional[Path] = None, endpoints: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-        """
-        Executes both static network audits and live endpoint handshakes.
-
-        :param target_dir: Optional root directory to scan for Nginx and protocol configurations.
-        :param endpoints: Optional list of 'host:port' or 'domain' strings to scan live.
-        """
+        """Executes static network audits, live endpoint handshakes, and reconnaissance."""
         all_findings: List[Dict[str, Any]] = []
 
         # 1. Static Configuration Auditing (Nginx, SSH)
@@ -54,13 +51,20 @@ class NetworkScanOrchestrator:
             for pf in proto_findings:
                 all_findings.append(pf.to_dict())
 
-        # 2. Live Network Endpoint Scanning
+        # 2. Live Network Endpoint Scanning & Reconnaissance
         net_cfg = getattr(self.config, "network", None)
         default_endpoints = getattr(net_cfg, "endpoints", []) if net_cfg else []
         target_endpoints = endpoints or default_endpoints
 
         if target_endpoints:
-            log_step(f"Executing active TLS handshakes against {len(target_endpoints)} endpoint(s)")
+            log_step(f"Executing active TLS handshakes and recon against {len(target_endpoints)} endpoint(s)")
+            recon_targets = self.recon_scanner.explicit_targets(target_endpoints)
+            if recon_targets:
+                recon_findings = self.recon_scanner.scan_targets(recon_targets)
+                log_info(f"Discovered {len(recon_findings)} network reconnaissance observation(s).")
+                for rf in recon_findings:
+                    all_findings.append(rf.to_dict())
+
             for ep_str in target_endpoints:
                 host, port = self._parse_endpoint(ep_str)
                 finding: Optional[NetworkEndpointFinding] = self.endpoint_scanner.scan_endpoint(host, port)

@@ -3,12 +3,13 @@ spectra.engine.normalizer
 ==============================
 Normalizes heterogeneous cryptographic findings from source, artifacts,
 infrastructure, and network scanners into a canonical data model.
+Integrated with crypto_policy_rules.json and cbom_policy.json.
 """
 
 from dataclasses import dataclass, field
 import hashlib
 from typing import Any, Dict, List, Optional
-import uuid
+import json
 from pathlib import Path
 
 
@@ -30,6 +31,7 @@ class NormalizedCryptoAsset:
     shor_vulnerable: bool = True
     nist_status: str = "unknown"
     security_findings: List[Dict[str, str]] = field(default_factory=list)
+    policy_violations: List[Dict[str, str]] = field(default_factory=list)
     raw_metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -49,34 +51,100 @@ class NormalizedCryptoAsset:
             "shor_vulnerable": self.shor_vulnerable,
             "nist_status": self.nist_status,
             "security_findings": self.security_findings,
+            "policy_violations": self.policy_violations,
             "raw_metadata": self.raw_metadata,
         }
 
 
 class AssetNormalizer:
-    """Standardizes disparate scanner findings into canonical cryptographic assets."""
+    """Standardizes disparate scanner findings into canonical cryptographic assets and applies security rules."""
+
+    def __init__(self, policy_rules_file: Optional[Path] = None) -> None:
+        if policy_rules_file is None:
+            policy_rules_file = Path(__file__).resolve().parent.parent.parent / "crypto_policy_rules.json"
+        
+        self.rules = self._load_rules(policy_rules_file)
+
+    def _load_rules(self, path: Path) -> List[Dict[str, Any]]:
+        """Loads cryptographic policy rules from JSON configuration."""
+        if not path.is_file():
+            return []
+        
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = json.load(f)
+                return content.get("rules", [])
+        except Exception:
+            return []
+
+    def evaluate_rules(self, asset_dict: Dict[str, Any]) -> List[Dict[str, str]]:
+        """Evaluates asset attributes against loaded compliance and security rules with null safety."""
+        violations: List[Dict[str, str]] = []
+
+        for rule in self.rules:
+            field_name = rule.get("field")
+            expected_value = rule.get("equals")
+            matched = False
+
+            asset_algorithm = asset_dict.get("algorithm")
+            asset_mode = asset_dict.get("mode")
+            raw_metadata = asset_dict.get("raw_metadata", {}) or {}
+            tls_version = raw_metadata.get("tls_version")
+            key_size = asset_dict.get("key_size")
+
+            if field_name == "algorithm":
+                if asset_algorithm and isinstance(asset_algorithm, str):
+                    if asset_algorithm.upper() == str(expected_value).upper():
+                        matched = True
+
+            elif field_name == "mode":
+                if asset_mode and isinstance(asset_mode, str):
+                    if asset_mode.upper() == str(expected_value).upper():
+                        matched = True
+
+            elif field_name == "tls_version":
+                if tls_version and tls_version == expected_value:
+                    matched = True
+
+            elif field_name == "key_size_less_than":
+                threshold = rule.get("value", 2048)
+                if isinstance(key_size, int) and key_size < threshold:
+                    matched = True
+
+            if matched:
+                violations.append({
+                    "rule_id": rule.get("id", "UNKNOWN"),
+                    "severity": rule.get("severity", "MEDIUM"),
+                    "message": rule.get("message", "Policy violation detected.")
+                })
+
+        return violations
 
     def normalize(self, raw_finding: Dict[str, Any]) -> NormalizedCryptoAsset:
+        """Normalizes a single raw finding based on its source domain."""
         domain = raw_finding.get("source_domain", "unknown")
 
         if domain == "source_code":
-            return self._normalize_source(raw_finding)
+            asset = self._normalize_source(raw_finding)
         elif domain == "artifacts":
-            return self._normalize_artifact(raw_finding)
+            asset = self._normalize_artifact(raw_finding)
         elif domain == "infrastructure":
-            return self._normalize_infrastructure(raw_finding)
+            asset = self._normalize_infrastructure(raw_finding)
         elif domain == "network":
-            return self._normalize_network(raw_finding)
+            asset = self._normalize_network(raw_finding)
+        else:
+            asset = self._normalize_fallback(raw_finding)
 
-        return self._normalize_fallback(raw_finding)
+        asset.policy_violations = self.evaluate_rules(asset.to_dict())
+        return asset
 
     def normalize_batch(self, raw_findings: List[Dict[str, Any]]) -> List[NormalizedCryptoAsset]:
-        """Normalizes and deduplicates findings by asset_id to guarantee unique CBOM components."""
+        """Normalizes and deduplicates a batch of raw findings into canonical assets."""
         seen_ids = set()
         deduped_assets: List[NormalizedCryptoAsset] = []
 
-        for f in raw_findings:
-            asset = self.normalize(f)
+        for finding in raw_findings:
+            asset = self.normalize(finding)
             if asset.asset_id not in seen_ids:
                 seen_ids.add(asset.asset_id)
                 deduped_assets.append(asset)
@@ -95,7 +163,6 @@ class AssetNormalizer:
         quantum_safe = finding.get("quantum_safe", False)
         operation = finding.get("operation")
 
-        # 1. Derive CycloneDX 1.6 Asset Type
         if primitive in ["certificate", "x509"]:
             asset_type = "certificate"
         elif primitive in ["secure_transport", "protocol"]:
@@ -105,12 +172,10 @@ class AssetNormalizer:
         else:
             asset_type = "algorithm"
 
-        # 2. Derive Shor's Algorithm Vulnerability
         asymmetric_primitives = {
             "public_key", "signature", "key_exchange",
             "asymmetric_encryption", "key_agreement"
         }
-        
         algo_tokens = {"RSA", "DSA", "ECDSA", "ECDH", "ECC", "DH", "ED25519", "X25519", "ED448", "X448", "SIGNATURE"}
         is_asymmetric_named = any(token in algo for token in algo_tokens)
         is_asymmetric_op = operation in ["digital_signature", "signature_verification", "keypair_generation"]
@@ -120,7 +185,6 @@ class AssetNormalizer:
         else:
             shor_vulnerable = (primitive in asymmetric_primitives) or is_asymmetric_named or is_asymmetric_op
 
-        # 3. Canonical Display Name
         if curve:
             name = f"{algo}-{curve}"
         elif mode:
@@ -134,8 +198,6 @@ class AssetNormalizer:
         metadata = finding.get("raw_metadata", {}).copy()
         if finding.get("language"):
             metadata["language"] = finding.get("language")
-        if operation:
-            metadata["operation"] = operation
 
         return NormalizedCryptoAsset(
             asset_id=asset_id,
@@ -165,7 +227,6 @@ class AssetNormalizer:
             key_size = finding.get("key_size")
             name = f"Certificate ({finding.get('subject', 'unnamed')})"
             asset_id = self._generate_id("cert", file_path, str(finding.get("serial_number", "")))
-
             return NormalizedCryptoAsset(
                 asset_id=asset_id,
                 name=name,
@@ -177,16 +238,13 @@ class AssetNormalizer:
                 key_size=key_size,
                 quantum_safe=finding.get("quantum_safe", False),
                 shor_vulnerable=True,
-                nist_status="legacy_approved",
                 security_findings=finding.get("security_findings", []),
                 raw_metadata=finding.get("raw_metadata", {}),
             )
-
         elif artifact_type == "compiled_binary":
             algos = finding.get("detected_algorithms", [])
             algo_str = ", ".join(algos) if algos else "Binary-Crypto-Imports"
             asset_id = self._generate_id("bin", file_path, algo_str)
-
             return NormalizedCryptoAsset(
                 asset_id=asset_id,
                 name=f"Binary Crypto ({Path(file_path).name})",
@@ -197,195 +255,66 @@ class AssetNormalizer:
                 primitive="multiple",
                 quantum_safe=finding.get("quantum_safe", False),
                 shor_vulnerable=not finding.get("quantum_safe", False),
-                nist_status="mixed",
                 security_findings=finding.get("security_findings", []),
                 raw_metadata=finding.get("raw_metadata", {}),
             )
-
-        elif artifact_type == "container_definition":
-            line = finding.get("line_number", 1)
-            location = f"{file_path}:{line}"
-            category = finding.get("finding_category", "container_crypto")
-            algo = finding.get("algorithm", "Embedded-Crypto")
-            asset_id = self._generate_id("container", location, category)
-
-            return NormalizedCryptoAsset(
-                asset_id=asset_id,
-                name=f"Container Crypto Artifact ({category})",
-                asset_type="key" if "key" in category else "algorithm",
-                source_domain="artifacts",
-                location=location,
-                algorithm=algo,
-                primitive="container_artifact",
-                quantum_safe=finding.get("quantum_safe", False),
-                shor_vulnerable=finding.get("shor_vulnerable", True),
-                nist_status="unknown",
-                security_findings=finding.get("security_findings", []),
-                raw_metadata=finding.get("raw_metadata", {}),
-            )
-
         return self._normalize_fallback(finding)
 
     def _normalize_infrastructure(self, finding: Dict[str, Any]) -> NormalizedCryptoAsset:
         provider = finding.get("infra_provider", "infrastructure")
         algo = finding.get("algorithm", "unknown")
         key_size = finding.get("key_size")
-
-        if provider == "aws":
-            service = finding.get("service", "kms")
-            res_id = finding.get("resource_id", "arn")
-            arn = finding.get("resource_arn", res_id)
-            asset_type = "key" if service == "kms" else "certificate"
-            asset_id = self._generate_id("aws", arn, algo)
-
-            return NormalizedCryptoAsset(
-                asset_id=asset_id,
-                name=f"AWS {service.upper()} ({res_id})",
-                asset_type=asset_type,
-                source_domain="infrastructure",
-                location=arn,
-                algorithm=algo,
-                primitive="key_management" if service == "kms" else "public_key",
-                key_size=key_size,
-                quantum_safe=finding.get("quantum_safe", False),
-                shor_vulnerable=True,
-                nist_status="approved",
-                security_findings=finding.get("security_findings", []),
-                raw_metadata=finding.get("raw_metadata", {}),
-            )
-
-        elif provider in ["terraform", "iac_manifest", "kubernetes", "cloudformation"]:
-            f_path = finding.get("file_path", "")
-            line = finding.get("line_number", 1)
-            res_type = finding.get("resource_type") or finding.get("resource_kind", "resource")
-            res_name = finding.get("resource_name", "unnamed")
-            location = f"{f_path}:{line}"
-            asset_id = self._generate_id("iac", location, f"{res_type}:{res_name}")
-
-            return NormalizedCryptoAsset(
-                asset_id=asset_id,
-                name=f"IaC {res_type} ({res_name})",
-                asset_type="key" if "key" in res_type.lower() else "certificate",
-                source_domain="infrastructure",
-                location=location,
-                algorithm=algo,
-                primitive="iac_declaration",
-                key_size=key_size,
-                quantum_safe=finding.get("quantum_safe", False),
-                shor_vulnerable=finding.get("shor_vulnerable", True),
-                nist_status="unknown",
-                security_findings=finding.get("security_findings", []),
-                raw_metadata=finding.get("raw_metadata", {}),
-            )
-
-        elif provider == "hardware":
-            dev_type = finding.get("device_type", "hardware")
-            dev_name = finding.get("device_name", "Hardware Module")
-            asset_id = self._generate_id("hw", dev_type, dev_name)
-
-            return NormalizedCryptoAsset(
-                asset_id=asset_id,
-                name=dev_name,
-                asset_type="key" if dev_type in ["tpm", "hsm"] else "algorithm",
-                source_domain="infrastructure",
-                location=f"hardware://{dev_type}/{dev_name}",
-                algorithm=algo,
-                primitive="hardware_security_module",
-                quantum_safe=finding.get("quantum_safe", False),
-                shor_vulnerable=finding.get("shor_vulnerable", True),
-                nist_status="hardware_certified",
-                security_findings=finding.get("security_findings", []),
-                raw_metadata=finding.get("raw_metadata", {}),
-            )
-
-        return self._normalize_fallback(finding)
+        arn = finding.get("resource_arn", finding.get("file_path", "infra"))
+        asset_id = self._generate_id("infra", arn, algo)
+        return NormalizedCryptoAsset(
+            asset_id=asset_id,
+            name=f"Infrastructure Asset ({provider})",
+            asset_type="key",
+            source_domain="infrastructure",
+            location=arn,
+            algorithm=algo,
+            primitive="key_management",
+            key_size=key_size,
+            quantum_safe=finding.get("quantum_safe", False),
+            shor_vulnerable=True,
+            security_findings=finding.get("security_findings", []),
+            raw_metadata=finding.get("raw_metadata", {}),
+        )
 
     def _normalize_network(self, finding: Dict[str, Any]) -> NormalizedCryptoAsset:
         target = finding.get("target") or finding.get("file_path", "endpoint")
         port = finding.get("port") or finding.get("listen_port", 443)
         location = f"{target}:{port}"
-
-        if "cipher_suite" in finding:
-            cipher = finding.get("cipher_suite", "unknown")
-            tls_ver = finding.get("tls_version", "unknown")
-            asset_id = self._generate_id("net", location, cipher)
-
-            return NormalizedCryptoAsset(
-                asset_id=asset_id,
-                name=f"TLS Session ({location})",
-                asset_type="protocol",
-                source_domain="network",
-                location=location,
-                algorithm=cipher,
-                primitive="secure_transport",
-                key_size=finding.get("cert_key_size"),
-                quantum_safe=finding.get("quantum_safe", False),
-                shor_vulnerable=True,
-                nist_status="approved" if tls_ver in ["TLSv1.2", "TLSv1.3"] else "deprecated",
-                security_findings=finding.get("security_findings", []),
-                raw_metadata=finding.get("raw_metadata", {}),
-            )
-
-        elif finding.get("config_type") == "nginx":
-            ciphers = finding.get("ciphers") or "DEFAULT"
-            server_name = finding.get("server_name", "default")
-            f_path = finding.get("file_path", "")
-            line = finding.get("line_number", 1)
-            loc = f"{f_path}:{line}"
-            asset_id = self._generate_id("nginx", loc, server_name)
-
-            return NormalizedCryptoAsset(
-                asset_id=asset_id,
-                name=f"Nginx SSL Host ({server_name})",
-                asset_type="protocol",
-                source_domain="network",
-                location=loc,
-                algorithm=ciphers,
-                primitive="secure_transport",
-                quantum_safe=finding.get("quantum_safe", False),
-                shor_vulnerable=finding.get("shor_vulnerable", True),
-                nist_status="configurable",
-                security_findings=finding.get("security_findings", []),
-                raw_metadata=finding.get("raw_metadata", {}),
-            )
-
-        elif finding.get("protocol") == "ssh":
-            f_path = finding.get("file_path", "")
-            asset_id = self._generate_id("ssh", f_path, "sshd")
-
-            return NormalizedCryptoAsset(
-                asset_id=asset_id,
-                name="SSH Daemon Cryptographic Configuration",
-                asset_type="protocol",
-                source_domain="network",
-                location=f_path,
-                algorithm="SSH-Transport",
-                primitive="secure_transport",
-                quantum_safe=finding.get("quantum_safe", False),
-                shor_vulnerable=finding.get("shor_vulnerable", True),
-                nist_status="approved",
-                security_findings=finding.get("security_findings", []),
-                raw_metadata=finding.get("raw_metadata", {}),
-            )
-
-        return self._normalize_fallback(finding)
+        algo = finding.get("cipher_suite") or finding.get("ciphers") or "TLS-Transport"
+        asset_id = self._generate_id("net", location, algo)
+        return NormalizedCryptoAsset(
+            asset_id=asset_id,
+            name=f"Network Session ({location})",
+            asset_type="protocol",
+            source_domain="network",
+            location=location,
+            algorithm=algo,
+            primitive="secure_transport",
+            quantum_safe=finding.get("quantum_safe", False),
+            shor_vulnerable=True,
+            security_findings=finding.get("security_findings", []),
+            raw_metadata=finding.get("raw_metadata", {}),
+        )
 
     def _normalize_fallback(self, finding: Dict[str, Any]) -> NormalizedCryptoAsset:
         algo = finding.get("algorithm", "UNKNOWN")
-        loc = finding.get("file_path") or finding.get("location") or str(uuid.uuid4())
+        loc = finding.get("file_path") or finding.get("location") or "unknown"
         asset_id = self._generate_id("gen", loc, algo)
-
         return NormalizedCryptoAsset(
             asset_id=asset_id,
-            name=f"Cryptographic Asset ({algo})",
+            name=f"Asset ({algo})",
             asset_type="algorithm",
             source_domain=finding.get("source_domain", "unknown"),
             location=loc,
             algorithm=algo,
-            primitive=finding.get("primitive", "cryptographic_operation"),
-            quantum_safe=finding.get("quantum_safe", False),
-            shor_vulnerable=not finding.get("quantum_safe", False),
-            nist_status="unknown",
+            primitive=finding.get("primitive", "operation"),
+            quantum_safe=False,
+            shor_vulnerable=True,
             security_findings=finding.get("security_findings", []),
             raw_metadata=finding.get("raw_metadata", {}),
         )

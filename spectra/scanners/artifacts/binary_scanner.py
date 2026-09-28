@@ -125,6 +125,7 @@ class BinaryScanner:
                 for am in self.algo_regex.finditer(s):
                     detected_algos.add(am.group(0))
 
+        # Only create a finding if cryptographic footprint is present
         if not (linked_libs or detected_symbols or detected_algos):
             return None
 

@@ -4,12 +4,14 @@ spectra.scanners.network.protocol_scanner
 Network protocol cryptographic property scanner.
 Audits cryptographic posture of protocols such as SSH, IPsec, and plain-text
 protocols, inspecting key exchange algorithms, ciphers, and MAC algorithms.
+Loaded via rules/network_indicators.yaml.
 """
 
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
+import yaml
 
 
 @dataclass
@@ -55,9 +57,26 @@ SSH_DIRECTIVE_REGEX = re.compile(
 
 
 class ProtocolScanner:
-    """Scans protocol configuration files (e.g., sshd_config) for cryptographic compliance."""
+    """Scans protocol configuration files (e.g., sshd_config) for cryptographic compliance using rules/network_indicators.yaml."""
 
     CONFIG_NAMES = {"sshd_config", "ssh_config", "ipsec.conf"}
+
+    def __init__(self, rules_file: Optional[Path] = None):
+        if rules_file is None:
+            rules_file = Path(__file__).parent / "rules" / "network_indicators.yaml"
+        self.rules = self._load_rules(rules_file)
+        self.weak_kex = self.rules.get("weak_ssh_kex", ["group1-sha1", "group14-sha1"])
+        self.weak_ciphers = self.rules.get("weak_ssh_ciphers", ["3des", "arcfour", "blowfish", "cast128"])
+        self.weak_macs = self.rules.get("weak_ssh_macs", ["md5", "sha1"])
+
+    def _load_rules(self, path: Path) -> Dict[str, Any]:
+        if not path.is_file():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {}
 
     def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[ProtocolFinding]:
         findings: List[ProtocolFinding] = []
@@ -111,7 +130,7 @@ class ProtocolScanner:
 
         # Audit weak SSH KEX (e.g. diffie-hellman-group1-sha1)
         for kex in kex_list:
-            if "group1-sha1" in kex or "group14-sha1" in kex:
+            if any(wk in kex.lower() for wk in self.weak_kex):
                 sec_findings.append({
                     "issue": f"Legacy SHA1-based SSH KexAlgorithm configured: {kex}",
                     "severity": "HIGH"
@@ -119,12 +138,12 @@ class ProtocolScanner:
 
         # Audit weak SSH ciphers (e.g. 3des-cbc, arcfour)
         for cipher in ciphers_list:
-            if any(w in cipher for w in ["3des", "arcfour", "blowfish", "cast128"]):
+            if any(wc in cipher.lower() for wc in self.weak_ciphers):
                 sec_findings.append({
                     "issue": f"Deprecated SSH cipher configured: {cipher}",
                     "severity": "CRITICAL"
                 })
-            elif "cbc" in cipher:
+            elif "cbc" in cipher.lower():
                 sec_findings.append({
                     "issue": f"CBC-mode cipher in SSH configuration: {cipher}",
                     "severity": "MEDIUM"
@@ -132,7 +151,7 @@ class ProtocolScanner:
 
         # Audit weak SSH MACs (e.g. hmac-md5, hmac-sha1)
         for mac in macs_list:
-            if "md5" in mac or "sha1" in mac:
+            if any(wm in mac.lower() for wm in self.weak_macs):
                 sec_findings.append({
                     "issue": f"Weak SSH MAC algorithm configured: {mac}",
                     "severity": "HIGH"

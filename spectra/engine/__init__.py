@@ -42,12 +42,12 @@ class CryptoAnalysisEngine:
         """
         log_header("Beginning Cryptographic Analysis & CBOM Synthesis Pipeline")
 
-        # 1. Normalization
+        # 1. Normalization & Policy Rule Evaluation
         log_step(f"Step 1/4: Normalizing {len(raw_findings)} raw findings into canonical asset schema")
         normalized_assets: List[NormalizedCryptoAsset] = self.normalizer.normalize_batch(raw_findings)
         log_info(f"Successfully normalized {len(normalized_assets)} cryptographic asset(s).")
 
-        # 2. Cross-Domain Correlation & Deduplication
+        # 2. Cross-Domain Correlation & Typed Dependency Graph Linking
         log_step("Step 2/4: Correlating assets across code, artifacts, infrastructure, and network")
         correlated_assets: List[CorrelatedAsset] = self.correlator.correlate(normalized_assets)
         correlated_links = sum(len(ca.cross_domain_links) for ca in correlated_assets)
