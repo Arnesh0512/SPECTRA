@@ -1,0 +1,61 @@
+{
+    "schema_version": "1.0",
+    "rules": [
+        {
+            "id": "ECDAT-CRYPTO-001",
+            "field": "algorithm",
+            "equals": "MD5",
+            "severity": "high",
+            "message": "MD5 is cryptographically broken."
+        },
+        {
+            "id": "ECDAT-CRYPTO-002",
+            "field": "algorithm",
+            "equals": "SHA-1",
+            "severity": "high",
+            "message": "SHA-1 is deprecated for collision resistance."
+        },
+        {
+            "id": "ECDAT-CRYPTO-003",
+            "field": "mode",
+            "equals": "ECB",
+            "severity": "high",
+            "message": "ECB mode leaks plaintext patterns."
+        },
+        {
+            "id": "ECDAT-CRYPTO-004",
+            "field": "algorithm",
+            "equals": "DES",
+            "severity": "high",
+            "message": "DES is obsolete."
+        },
+        {
+            "id": "ECDAT-CRYPTO-005",
+            "field": "algorithm",
+            "equals": "RC4",
+            "severity": "high",
+            "message": "RC4 is obsolete."
+        },
+        {
+            "id": "ECDAT-CRYPTO-006",
+            "field": "key_size_less_than",
+            "value": 2048,
+            "severity": "high",
+            "message": "RSA key size is below 2048 bits."
+        },
+        {
+            "id": "ECDAT-CRYPTO-007",
+            "field": "tls_version",
+            "equals": "TLSv1",
+            "severity": "high",
+            "message": "TLS 1.0 is obsolete."
+        },
+        {
+            "id": "ECDAT-CRYPTO-008",
+            "field": "tls_version",
+            "equals": "TLSv1.1",
+            "severity": "high",
+            "message": "TLS 1.1 is obsolete."
+        }
+    ]
+}
