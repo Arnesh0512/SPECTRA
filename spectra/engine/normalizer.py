@@ -30,6 +30,12 @@ class NormalizedCryptoAsset:
     quantum_safe: bool = False
     shor_vulnerable: bool = True
     nist_status: str = "unknown"
+    # New Phase 1 & Phase 2 Parameters for Quantitative Y Estimation
+    direct_calls: int = 0
+    transitive_calls: int = 0
+    call_depth: int = 0
+    loc: int = 0
+    is_upstream_dependency: bool = False
     security_findings: List[Dict[str, str]] = field(default_factory=list)
     policy_violations: List[Dict[str, str]] = field(default_factory=list)
     raw_metadata: Dict[str, Any] = field(default_factory=dict)
@@ -50,6 +56,11 @@ class NormalizedCryptoAsset:
             "quantum_safe": self.quantum_safe,
             "shor_vulnerable": self.shor_vulnerable,
             "nist_status": self.nist_status,
+            "direct_calls": self.direct_calls,
+            "transitive_calls": self.transitive_calls,
+            "call_depth": self.call_depth,
+            "loc": self.loc,
+            "is_upstream_dependency": self.is_upstream_dependency,
             "security_findings": self.security_findings,
             "policy_violations": self.policy_violations,
             "raw_metadata": self.raw_metadata,
@@ -163,6 +174,14 @@ class AssetNormalizer:
         quantum_safe = finding.get("quantum_safe", False)
         operation = finding.get("operation")
 
+        # Extract call graph and LOC metrics from finding metadata if present
+        metadata = finding.get("raw_metadata", {}).copy()
+        direct_calls = metadata.get("direct_calls", 0)
+        transitive_calls = metadata.get("transitive_calls", 0)
+        call_depth = metadata.get("call_depth", 0)
+        loc = metadata.get("loc", 10)  # Default fallback LOC
+        is_upstream = metadata.get("finding_type") == "crypto_capable_dependency"
+
         if primitive in ["certificate", "x509"]:
             asset_type = "certificate"
         elif primitive in ["secure_transport", "protocol"]:
@@ -195,7 +214,6 @@ class AssetNormalizer:
         location = f"{file_path}:{line}"
         asset_id = self._generate_id("src", location, f"{algo}:{curve or mode or ''}")
 
-        metadata = finding.get("raw_metadata", {}).copy()
         if finding.get("language"):
             metadata["language"] = finding.get("language")
 
@@ -214,6 +232,11 @@ class AssetNormalizer:
             quantum_safe=quantum_safe,
             shor_vulnerable=shor_vulnerable,
             nist_status=finding.get("nist_status", "unknown"),
+            direct_calls=direct_calls,
+            transitive_calls=transitive_calls,
+            call_depth=call_depth,
+            loc=loc,
+            is_upstream_dependency=is_upstream,
             security_findings=finding.get("security_findings", []),
             raw_metadata=metadata,
         )

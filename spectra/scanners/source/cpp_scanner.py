@@ -106,13 +106,22 @@ class CPPScanner(BaseSourceScanner):
         except Exception:
             return []
 
+        # Helper to enrich findings with computed call-graph metrics
+        def _add_finding(finding: SourceFinding, symbol_name: str) -> None:
+            dirs, trans, depth, loc = self.compute_call_metrics(file_path, symbol_name)
+            finding.direct_calls = dirs
+            finding.transitive_calls = trans
+            finding.call_depth = depth
+            finding.loc = loc
+            findings.append(finding)
+
         # 1. OpenSSL EVP Cipher macros
         for match in EVP_CIPHER_MACRO_REGEX.finditer(content):
             func_name = match.group("func")
             line_idx = self._offset_to_line(content, match.start())
             finding = self._process_cipher_macro(file_path, line_idx, match.start(), func_name)
             if finding:
-                findings.append(finding)
+                _add_finding(finding, func_name)
 
         # 2. OpenSSL EVP Digest macros
         for match in EVP_MD_MACRO_REGEX.finditer(content):
@@ -120,7 +129,7 @@ class CPPScanner(BaseSourceScanner):
             line_idx = self._offset_to_line(content, match.start())
             finding = self._process_digest_macro(file_path, line_idx, match.start(), func_name)
             if finding:
-                findings.append(finding)
+                _add_finding(finding, func_name)
 
         # 3. OpenSSL 3.0 Fetch API
         for match in OPENSSL3_FETCH_REGEX.finditer(content):
@@ -129,7 +138,7 @@ class CPPScanner(BaseSourceScanner):
             line_idx = self._offset_to_line(content, match.start())
             finding = self._process_fetch_call(file_path, line_idx, match.start(), fetch_func, algo_str)
             if finding:
-                findings.append(finding)
+                _add_finding(finding, fetch_func)
 
         # 4. RSA Key Generation & Key Size
         for match in RSA_KEYGEN_REGEX.finditer(content):
@@ -145,24 +154,23 @@ class CPPScanner(BaseSourceScanner):
                 })
 
             snippet = self.extract_snippet(file_path, line_idx)
-            findings.append(
-                SourceFinding(
-                    source_domain="source_code",
-                    language="cpp",
-                    file_path=str(file_path.resolve()),
-                    line_number=line_idx,
-                    column_number=match.start(),
-                    code_snippet=snippet,
-                    primitive="public_key",
-                    algorithm="RSA",
-                    key_size=key_size,
-                    operation="keypair_generation",
-                    quantum_safe=False,
-                    nist_status="deprecated_pqc",
-                    security_findings=sec_findings,
-                    raw_metadata={"key_size": key_size}
-                )
+            rsa_finding = SourceFinding(
+                source_domain="source_code",
+                language="cpp",
+                file_path=str(file_path.resolve()),
+                line_number=line_idx,
+                column_number=match.start(),
+                code_snippet=snippet,
+                primitive="public_key",
+                algorithm="RSA",
+                key_size=key_size,
+                operation="keypair_generation",
+                quantum_safe=False,
+                nist_status="deprecated_pqc",
+                security_findings=sec_findings,
+                raw_metadata={"key_size": key_size}
             )
+            _add_finding(rsa_finding, "RSA_generate_key_ex")
 
         # 5. OpenSSL EC Curves
         for match in EC_CURVE_REGEX.finditer(content):
@@ -178,47 +186,45 @@ class CPPScanner(BaseSourceScanner):
                 })
 
             snippet = self.extract_snippet(file_path, line_idx)
-            findings.append(
-                SourceFinding(
-                    source_domain="source_code",
-                    language="cpp",
-                    file_path=str(file_path.resolve()),
-                    line_number=line_idx,
-                    column_number=match.start(),
-                    code_snippet=snippet,
-                    primitive="public_key",
-                    algorithm="ECC",
-                    curve=canonical_curve,
-                    operation="keypair_generation",
-                    quantum_safe=False,
-                    nist_status="deprecated_pqc",
-                    security_findings=sec_findings,
-                    raw_metadata={"nid": raw_nid}
-                )
+            ec_finding = SourceFinding(
+                source_domain="source_code",
+                language="cpp",
+                file_path=str(file_path.resolve()),
+                line_number=line_idx,
+                column_number=match.start(),
+                code_snippet=snippet,
+                primitive="public_key",
+                algorithm="ECC",
+                curve=canonical_curve,
+                operation="keypair_generation",
+                quantum_safe=False,
+                nist_status="deprecated_pqc",
+                security_findings=sec_findings,
+                raw_metadata={"nid": raw_nid}
             )
+            _add_finding(ec_finding, "EC_KEY_new_by_curve_name")
 
         # 6. Operational Lifecycles
         for match in LIFECYCLE_REGEX.finditer(content):
             op_name = match.group("op")
             line_idx = self._offset_to_line(content, match.start())
             snippet = self.extract_snippet(file_path, line_idx)
-            findings.append(
-                SourceFinding(
-                    source_domain="source_code",
-                    language="cpp",
-                    file_path=str(file_path.resolve()),
-                    line_number=line_idx,
-                    column_number=match.start(),
-                    code_snippet=snippet,
-                    primitive="cryptographic_operation",
-                    algorithm=self._map_op_to_algo(op_name),
-                    operation=self._map_op_to_operation(op_name),
-                    quantum_safe=False,
-                    nist_status="operational",
-                    security_findings=[],
-                    raw_metadata={"operation": op_name}
-                )
+            lifecycle_finding = SourceFinding(
+                source_domain="source_code",
+                language="cpp",
+                file_path=str(file_path.resolve()),
+                line_number=line_idx,
+                column_number=match.start(),
+                code_snippet=snippet,
+                primitive="cryptographic_operation",
+                algorithm=self._map_op_to_algo(op_name),
+                operation=self._map_op_to_operation(op_name),
+                quantum_safe=False,
+                nist_status="operational",
+                security_findings=[],
+                raw_metadata={"operation": op_name}
             )
+            _add_finding(lifecycle_finding, op_name)
 
         # 7. CodeQL isCryptoApi Target: SSL, TLS, X509, PKCS5, PKCS12
         for match in CODEQL_EXT_C_REGEX.finditer(content):
@@ -256,7 +262,7 @@ class CPPScanner(BaseSourceScanner):
                 algo = "TLS"
                 op = "tls_session_init"
 
-            findings.append(SourceFinding(
+            codeql_finding = SourceFinding(
                 source_domain="source_code",
                 language="cpp",
                 file_path=str(file_path.resolve()),
@@ -270,7 +276,8 @@ class CPPScanner(BaseSourceScanner):
                 nist_status="approved" if not sec_findings else "broken_classical",
                 security_findings=sec_findings,
                 raw_metadata={"codeql_c_api": func_name}
-            ))
+            )
+            _add_finding(codeql_finding, func_name)
 
         # 8. Libsodium Core (box, sign, secretbox, kx, auth)
         for match in SODIUM_REGEX.finditer(content):
@@ -278,7 +285,7 @@ class CPPScanner(BaseSourceScanner):
             line_idx = self._offset_to_line(content, match.start())
             finding = self._process_sodium_call(file_path, line_idx, match.start(), call_name)
             if finding:
-                findings.append(finding)
+                _add_finding(finding, call_name)
 
         # 9. CodeQL isCryptoApi Target: Libsodium AEAD & GenericHash
         for match in SODIUM_EXT_REGEX.finditer(content):
@@ -296,7 +303,7 @@ class CPPScanner(BaseSourceScanner):
                 prim = "symmetric_cipher"
                 op = "aead_encryption"
 
-            findings.append(SourceFinding(
+            sodium_ext_finding = SourceFinding(
                 source_domain="source_code",
                 language="cpp",
                 file_path=str(file_path.resolve()),
@@ -310,7 +317,8 @@ class CPPScanner(BaseSourceScanner):
                 nist_status="approved",
                 security_findings=[],
                 raw_metadata={"sodium_call": call_name}
-            ))
+            )
+            _add_finding(sodium_ext_finding, call_name)
 
         # 10. Liboqs Post-Quantum Cryptography
         for match in OQS_PQC_REGEX.finditer(content):
@@ -319,7 +327,7 @@ class CPPScanner(BaseSourceScanner):
             line_idx = self._offset_to_line(content, match.start())
             finding = self._process_oqs_call(file_path, line_idx, match.start(), func_name, algo_param)
             if finding:
-                findings.append(finding)
+                _add_finding(finding, func_name)
 
         # 11. Randomness / PRNG
         for match in PRNG_REGEX.finditer(content):
@@ -328,44 +336,42 @@ class CPPScanner(BaseSourceScanner):
             snippet = self.extract_snippet(file_path, line_idx)
 
             if func_name in ["rand", "srand"]:
-                findings.append(
-                    SourceFinding(
-                        source_domain="source_code",
-                        language="cpp",
-                        file_path=str(file_path.resolve()),
-                        line_number=line_idx,
-                        column_number=match.start(),
-                        code_snippet=snippet,
-                        primitive="prng",
-                        algorithm="rand",
-                        operation="insecure_random",
-                        quantum_safe=False,
-                        nist_status="broken_classical",
-                        security_findings=[{
-                            "issue": "Non-cryptographic PRNG (rand/srand) used in security context",
-                            "severity": "HIGH"
-                        }],
-                        raw_metadata={"function": func_name}
-                    )
+                prng_finding = SourceFinding(
+                    source_domain="source_code",
+                    language="cpp",
+                    file_path=str(file_path.resolve()),
+                    line_number=line_idx,
+                    column_number=match.start(),
+                    code_snippet=snippet,
+                    primitive="prng",
+                    algorithm="rand",
+                    operation="insecure_random",
+                    quantum_safe=False,
+                    nist_status="broken_classical",
+                    security_findings=[{
+                        "issue": "Non-cryptographic PRNG (rand/srand) used in security context",
+                        "severity": "HIGH"
+                    }],
+                    raw_metadata={"function": func_name}
                 )
+                _add_finding(prng_finding, func_name)
             else:
-                findings.append(
-                    SourceFinding(
-                        source_domain="source_code",
-                        language="cpp",
-                        file_path=str(file_path.resolve()),
-                        line_number=line_idx,
-                        column_number=match.start(),
-                        code_snippet=snippet,
-                        primitive="prng",
-                        algorithm="CSPRNG",
-                        operation="secure_random",
-                        quantum_safe=True,
-                        nist_status="approved",
-                        security_findings=[],
-                        raw_metadata={"function": func_name}
-                    )
+                csprng_finding = SourceFinding(
+                    source_domain="source_code",
+                    language="cpp",
+                    file_path=str(file_path.resolve()),
+                    line_number=line_idx,
+                    column_number=match.start(),
+                    code_snippet=snippet,
+                    primitive="prng",
+                    algorithm="CSPRNG",
+                    operation="secure_random",
+                    quantum_safe=True,
+                    nist_status="approved",
+                    security_findings=[],
+                    raw_metadata={"function": func_name}
                 )
+                _add_finding(csprng_finding, func_name)
 
         # 12. Extended C/C++ Ecosystem Libraries (mbedtls, wolfssl, botan, cryptopp)
         for match in EXT_CPP_CRYPTO_REGEX.finditer(content):
@@ -409,7 +415,7 @@ class CPPScanner(BaseSourceScanner):
                 prim = "prng"
                 op = "secure_random"
 
-            findings.append(SourceFinding(
+            ext_cpp_finding = SourceFinding(
                 source_domain="source_code",
                 language="cpp",
                 file_path=str(file_path.resolve()),
@@ -423,7 +429,8 @@ class CPPScanner(BaseSourceScanner):
                 nist_status="approved" if not sec_findings else "broken_classical",
                 security_findings=sec_findings,
                 raw_metadata={"c_call": call_name}
-            ))
+            )
+            _add_finding(ext_cpp_finding, call_name)
 
         return findings
 

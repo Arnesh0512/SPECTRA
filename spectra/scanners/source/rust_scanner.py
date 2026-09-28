@@ -92,12 +92,22 @@ class RustScanner(BaseSourceScanner):
         except Exception:
             return []
 
+        def _add_finding(finding: SourceFinding, symbol_name: str) -> None:
+            dirs, trans, depth, loc = self.compute_call_metrics(file_path, symbol_name)
+            finding.direct_calls = dirs
+            finding.transitive_calls = trans
+            finding.call_depth = depth
+            finding.loc = loc
+            findings.append(finding)
+
         # 1. Symmetric Ciphers
         for match in RUST_CIPHER_REGEX.finditer(content):
             cls = match.group("class")
             method = match.group("method")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_cipher(file_path, line_idx, match.start(), cls, method))
+            finding = self._process_cipher(file_path, line_idx, match.start(), cls, method)
+            if finding:
+                _add_finding(finding, method)
 
         # 2. Ring Bare/Full Constants
         for match in RING_BARE_CONST_REGEX.finditer(content):
@@ -109,60 +119,76 @@ class RustScanner(BaseSourceScanner):
                 continue
             res = self._process_ring_const_name(file_path, line_idx, match.start(), c_name)
             if res:
-                findings.append(res)
+                _add_finding(res, c_name)
 
         # 3. RSA Keygen & Key Sizes
         for match in RUST_RSA_KEYGEN_REGEX.finditer(content):
             bits = int(match.group("bits"))
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_rsa_keygen(file_path, line_idx, match.start(), bits))
+            finding = self._process_rsa_keygen(file_path, line_idx, match.start(), bits)
+            if finding:
+                _add_finding(finding, "new")
 
         # 4. CodeQL Target: PKCS#8 Deserialization
         for match in RUST_PKCS8_REGEX.finditer(content):
             type_name = match.group("type")
             method = match.group("method")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_pkcs8(file_path, line_idx, match.start(), type_name, method))
+            finding = self._process_pkcs8(file_path, line_idx, match.start(), type_name, method)
+            if finding:
+                _add_finding(finding, method)
 
         # 5. Elliptic Curves
         for match in RUST_ECC_REGEX.finditer(content):
             target = match.group("target")
             method = match.group("method")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_ecc_target(file_path, line_idx, match.start(), target, method))
+            finding = self._process_ecc_target(file_path, line_idx, match.start(), target, method)
+            if finding:
+                _add_finding(finding, method)
 
         # 6. Hashes
         for match in RUST_HASH_REGEX.finditer(content):
             h_name = match.group("hash")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_hash(file_path, line_idx, match.start(), h_name))
+            finding = self._process_hash(file_path, line_idx, match.start(), h_name)
+            if finding:
+                _add_finding(finding, "new")
 
         # 7. CodeQL Target: Rustls Configuration (with_safe_defaults, bind)
         for match in RUST_TLS_REGEX.finditer(content):
             target = match.group("target")
             method = match.group("method")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_tls(file_path, line_idx, match.start(), target, method))
+            finding = self._process_tls(file_path, line_idx, match.start(), target, method)
+            if finding:
+                _add_finding(finding, method)
 
         # 8. CodeQL Target: Direct Operational Calls (encrypt, decrypt, sign, verify)
         for match in RUST_OP_EXEC_REGEX.finditer(content):
             receiver = match.group("receiver")
             method = match.group("method")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_op_exec(file_path, line_idx, match.start(), receiver, method))
+            finding = self._process_op_exec(file_path, line_idx, match.start(), receiver, method)
+            if finding:
+                _add_finding(finding, method)
 
         # 9. Post-Quantum Cryptography
         for match in RUST_PQC_REGEX.finditer(content):
             pqc_name = match.group("pqc")
             method = match.group("method")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_pqc_call(file_path, line_idx, match.start(), pqc_name, method))
+            finding = self._process_pqc_call(file_path, line_idx, match.start(), pqc_name, method)
+            if finding:
+                _add_finding(finding, method)
 
         # 10. Randomness
         for match in RUST_RANDOM_REGEX.finditer(content):
             rng_type = match.group("type")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_random(file_path, line_idx, match.start(), rng_type))
+            finding = self._process_random(file_path, line_idx, match.start(), rng_type)
+            if finding:
+                _add_finding(finding, rng_type.replace("()", ""))
 
         # 11. Extended Rust Ecosystem
         for match in RUST_EXT_ECOSYSTEM_REGEX.finditer(content):
@@ -209,7 +235,7 @@ class RustScanner(BaseSourceScanner):
                 op = "symmetric_cipher_init"
                 q_safe = False
 
-            findings.append(SourceFinding(
+            rust_eco_finding = SourceFinding(
                 source_domain="source_code",
                 language="rust",
                 file_path=str(file_path.resolve()),
@@ -223,9 +249,9 @@ class RustScanner(BaseSourceScanner):
                 nist_status="approved",
                 security_findings=[],
                 raw_metadata={"rust_ecosystem_call": f"{crate}::{method}"}
-            ))
+            )
+            _add_finding(rust_eco_finding, method)
 
-        
         return findings
 
     def _process_cipher(self, file_path: Path, line_idx: int, col: int, cls: str, method: str) -> SourceFinding:

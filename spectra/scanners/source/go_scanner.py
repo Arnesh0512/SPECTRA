@@ -101,7 +101,7 @@ GO_RANDOM_REGEX = re.compile(
 
 
 class GoScanner(BaseSourceScanner):
-    """Scanner for Go source files (.go)."""
+    """Scanner for Go source files (.go)[cite: 66]."""
 
     def supported_extensions(self) -> List[str]:
         return [".go"]
@@ -114,97 +114,134 @@ class GoScanner(BaseSourceScanner):
         except Exception:
             return []
 
+        def _add_finding(finding: SourceFinding, symbol_name: str) -> None:
+            dirs, trans, depth, loc = self.compute_call_metrics(file_path, symbol_name)
+            finding.direct_calls = dirs
+            finding.transitive_calls = trans
+            finding.call_depth = depth
+            finding.loc = loc
+            findings.append(finding)
+
         # 1. Symmetric Ciphers
         for match in GO_CIPHER_REGEX.finditer(content):
             pkg = match.group("pkg").lower()
             method = match.group("method")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_cipher(file_path, line_idx, match.start(), pkg, method))
+            finding = self._process_cipher(file_path, line_idx, match.start(), pkg, method)
+            if finding:
+                _add_finding(finding, method)
 
         # 2. Block Cipher Modes
         for match in GO_MODE_REGEX.finditer(content):
             mode_ctor = match.group("mode")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_mode(file_path, line_idx, match.start(), mode_ctor))
+            finding = self._process_mode(file_path, line_idx, match.start(), mode_ctor)
+            if finding:
+                _add_finding(finding, mode_ctor)
 
         # 3. RSA Keygen & Key Sizes
         for match in GO_RSA_REGEX.finditer(content):
             key_size = int(match.group("size"))
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_rsa_keygen(file_path, line_idx, match.start(), key_size))
+            finding = self._process_rsa_keygen(file_path, line_idx, match.start(), key_size)
+            if finding:
+                _add_finding(finding, "GenerateKey")
 
         # 4. Asymmetric Curves & Keygens
         for match in GO_ASYMM_KEYGEN_REGEX.finditer(content):
             pkg = match.group("pkg").lower()
             method = match.group("method")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_asymm_keygen(file_path, line_idx, match.start(), pkg, method))
+            finding = self._process_asymm_keygen(file_path, line_idx, match.start(), pkg, method)
+            if finding:
+                _add_finding(finding, method)
 
         # 5. Elliptic Curve references
         for match in GO_CURVE_REGEX.finditer(content):
             curve_raw = match.group("curve")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_curve(file_path, line_idx, match.start(), curve_raw))
+            finding = self._process_curve(file_path, line_idx, match.start(), curve_raw)
+            if finding:
+                _add_finding(finding, curve_raw)
 
         # 6. Hashes & MAC
         for match in GO_HASH_REGEX.finditer(content):
             pkg = match.group("pkg").lower()
             method = match.group("method")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_hash(file_path, line_idx, match.start(), pkg, method))
+            finding = self._process_hash(file_path, line_idx, match.start(), pkg, method)
+            if finding:
+                _add_finding(finding, method)
 
         # 7. CodeQL Target: Digital Signatures (Sign / Verify)
         for match in GO_SIGN_VERIFY_REGEX.finditer(content):
             pkg = match.group("pkg").lower()
             method = match.group("method")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_sign_verify(file_path, line_idx, match.start(), pkg, method))
+            finding = self._process_sign_verify(file_path, line_idx, match.start(), pkg, method)
+            if finding:
+                _add_finding(finding, method)
 
         # 8. CodeQL Target: X.509 Certificates & Key Material Loading
         for match in GO_X509_REGEX.finditer(content):
             x509_method = match.group("x509_method")
             tls_load = match.group("tls_load")
+            sym = x509_method or tls_load
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_x509(file_path, line_idx, match.start(), x509_method or tls_load))
+            finding = self._process_x509(file_path, line_idx, match.start(), sym)
+            if finding:
+                _add_finding(finding, sym)
 
         # 9. CodeQL Target: TLS Network Listeners & Servers
         for match in GO_TLS_NETWORK_REGEX.finditer(content):
             method = match.group("method")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_tls_network(file_path, line_idx, match.start(), method))
+            finding = self._process_tls_network(file_path, line_idx, match.start(), method)
+            if finding:
+                _add_finding(finding, method)
 
         # 10. TLS Version Configuration
         for match in GO_TLS_VERSION_REGEX.finditer(content):
             ver_name = match.group("ver")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_tls_version(file_path, line_idx, match.start(), ver_name))
+            finding = self._process_tls_version(file_path, line_idx, match.start(), ver_name)
+            if finding:
+                _add_finding(finding, "MinVersion")
 
         # 11. CodeQL Target: Operational Cryptographic Execution (Seal, Open)
         for match in GO_CIPHER_OP_REGEX.finditer(content):
             receiver = match.group("receiver")
             op = match.group("op")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_cipher_op(file_path, line_idx, match.start(), receiver, op))
+            finding = self._process_cipher_op(file_path, line_idx, match.start(), receiver, op)
+            if finding:
+                _add_finding(finding, op)
 
         # 12. Extended x/crypto
         for match in GO_XCRYPTO_REGEX.finditer(content):
             mod = match.group("mod").lower()
             func = match.group("func")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_xcrypto(file_path, line_idx, match.start(), mod, func))
+            finding = self._process_xcrypto(file_path, line_idx, match.start(), mod, func)
+            if finding:
+                _add_finding(finding, func)
 
         # 13. Cloudflare CIRCL (PQC)
         for match in GO_PQC_REGEX.finditer(content):
             algo = match.group("algo").lower()
             method = match.group("method")
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_pqc(file_path, line_idx, match.start(), algo, method))
+            finding = self._process_pqc(file_path, line_idx, match.start(), algo, method)
+            if finding:
+                _add_finding(finding, method)
 
         # 14. Randomness
         for match in GO_RANDOM_REGEX.finditer(content):
             match_str = match.group(0)
             line_idx = self._offset_to_line(content, match.start())
-            findings.append(self._process_random(file_path, line_idx, match.start(), match_str))
+            finding = self._process_random(file_path, line_idx, match.start(), match_str)
+            if finding:
+                _add_finding(finding, "Read")
 
         return findings
 
