@@ -17,6 +17,7 @@ import xml.etree.ElementTree as element_tree
 import yaml
 
 from .base import SourceFinding
+from .dependency_analyzer import DependencyAnalyzer
 
 
 MANIFEST_NAMES: Set[str] = {
@@ -51,6 +52,7 @@ class DependencyScanner:
             rules_file = Path(__file__).parent / "rules" / "dependencies.yaml"
         self.rules_file = rules_file
         self.catalog = self._load_catalog(rules_file)
+        self.analyzer = DependencyAnalyzer()
 
     def _load_catalog(self, path: Path) -> List[Dict[str, Any]]:
         if not path.is_file():
@@ -62,8 +64,8 @@ class DependencyScanner:
         except Exception:
             return []
 
-    def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[SourceFinding]:
-        """Walks target directory for manifest files and extracts crypto dependencies."""
+    def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None, scanners_map: Optional[Dict[str, Any]] = None) -> List[SourceFinding]:
+        """Walks target directory for manifest files, extracts crypto dependencies, and runs disk analysis."""
         findings: List[SourceFinding] = []
         excluded = set(excluded_dirs or [])
 
@@ -90,10 +92,47 @@ class DependencyScanner:
                 continue
 
             for raw in observations:
-                if raw["name"] and self._is_crypto_capable(raw["name"], ecosystem):
-                    findings.append(self._build_finding(raw, ecosystem, target_dir, file_path))
+                pkg_name = raw["name"]
+                if pkg_name and self._is_crypto_capable(pkg_name, ecosystem):
+                    finding = self._build_finding(raw, ecosystem, target_dir, file_path)
+                    findings.append(finding)
+
+                    if scanners_map:
+                        analysis_results = self.analyzer.analyze_dependency(pkg_name, ecosystem, target_dir, scanners_map)
+                        for res in analysis_results:
+                            findings.append(self._build_analysis_finding(res, target_dir, file_path))
 
         return findings
+
+    def _build_analysis_finding(self, res: Dict[str, Any], root: Path, file: Path) -> SourceFinding:
+        """Constructs an enriched finding with internal encryption and call graph metrics (Step 4)."""
+        return SourceFinding(
+            source_domain="source_code",
+            language="dependency_analysis",
+            file_path=str(file.resolve()),
+            line_number=res.get("line_number", 1),
+            column_number=1,
+            code_snippet=f"Module: {res['module_name']} | Function: {res['function_called']} | Internal Crypto: {res['encryption_internally']}",
+            primitive="cryptographic_operation",
+            algorithm=res["encryption_internally"],
+            operation="library_dependency_call",
+            quantum_safe=False,
+            nist_status="approved",
+            direct_calls=res["direct_calls"],
+            transitive_calls=res["indirect_calls"],
+            call_depth=res["call_depth"],
+            loc=15,
+            security_findings=[],
+            raw_metadata={
+                "finding_type": "dependency_function_analysis",
+                "module_name": res["module_name"],
+                "function_called": res["function_called"],
+                "encryption_internally": res["encryption_internally"],
+                "codebase_caller": res["codebase_caller"],
+                "direct_calls": res["direct_calls"],
+                "indirect_calls": res["indirect_calls"]
+            }
+        )
 
     def _build_finding(self, raw: Dict[str, Any], ecosystem: str, root: Path, file: Path) -> SourceFinding:
         rel_path = str(file.relative_to(root).as_posix()) if file.is_relative_to(root) else str(file.resolve())

@@ -39,11 +39,28 @@ class SourceScanOrchestrator:
             RustScanner(rule_engine=self.rule_engine),
         ]
         self.ext_to_scanner: Dict[str, BaseSourceScanner] = {}
+        self.ecosystem_to_scanner: Dict[str, BaseSourceScanner] = {}
+        
         for scanner in self.scanners:
             for ext in scanner.supported_extensions():
                 self.ext_to_scanner[ext] = scanner
+            
+            lang_name = scanner.__class__.__name__.lower()
+            if "python" in lang_name:
+                self.ecosystem_to_scanner["python"] = scanner
+            elif "js" in lang_name:
+                self.ecosystem_to_scanner["javascript"] = scanner
+                self.ecosystem_to_scanner["typescript"] = scanner
+            elif "go" in lang_name:
+                self.ecosystem_to_scanner["go"] = scanner
+            elif "jvm" in lang_name:
+                self.ecosystem_to_scanner["java"] = scanner
+                self.ecosystem_to_scanner["kotlin"] = scanner
+            elif "rust" in lang_name:
+                self.ecosystem_to_scanner["rust"] = scanner
+            elif "cpp" in lang_name:
+                self.ecosystem_to_scanner["cpp"] = scanner
 
-        # Initialize modular dependency scanner
         self.dependency_scanner = DependencyScanner()
 
         # Build dynamic regex pattern for pre-filtering
@@ -55,9 +72,13 @@ class SourceScanOrchestrator:
         all_findings: List[SourceFinding] = []
         excluded = self.config.source_scanner.excluded_directories
 
-        # 1. Dependency Analysis: Scan manifests and lockfiles
-        dep_findings = self.dependency_scanner.scan_directory(target_dir, excluded_dirs=excluded)
-        log_info(f"Discovered {len(dep_findings)} crypto-capable dependency declaration(s).")
+        # 1. Dependency Analysis & Deep Disk/Function Scanning (Phase 2)
+        dep_findings = self.dependency_scanner.scan_directory(
+            target_dir, 
+            excluded_dirs=excluded, 
+            scanners_map=self.ecosystem_to_scanner
+        )
+        log_info(f"Discovered {len(dep_findings)} crypto dependency declaration(s) and function mappings.")
         all_findings.extend(dep_findings)
 
         # 2. Tier 1: Discover candidate files with crypto signatures
@@ -84,8 +105,7 @@ class SourceScanOrchestrator:
     def _build_dynamic_regex(self) -> str:
         """
         Dynamically derives regex search tokens from all registered YAML rules
-        and component catalogs (common.json, crypto_capable_dependencies.json,
-        and language vocabulary).
+        and component catalogs.
         """
         raw_tokens: Set[str] = set()
 
