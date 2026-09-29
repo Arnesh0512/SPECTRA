@@ -215,7 +215,7 @@ class AssetNormalizer:
 
         if curve:
             name = f"{algo}-{curve}"
-        elif mode:
+        elif mode and not algo.endswith(f"-{mode}") and not algo.endswith(mode):
             name = f"{algo}-{mode}"
         else:
             name = algo
