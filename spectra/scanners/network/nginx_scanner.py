@@ -8,6 +8,7 @@ Loaded via rules/network_indicators.yaml.
 """
 
 from dataclasses import dataclass, field
+import platform
 from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
@@ -84,17 +85,55 @@ class NginxScanner:
         except Exception:
             return {}
 
+    def _get_system_fallback_paths(self) -> List[Path]:
+        """Returns OS-agnostic common default web server configuration directories."""
+        paths: List[Path] = []
+        system = platform.system()
+
+        if system == "Windows":
+            windows_defaults = [
+                Path("C:/nginx/conf"),
+                Path("C:/etc/nginx"),
+                Path("C:/Program Files/nginx/conf"),
+            ]
+            for p in windows_defaults:
+                if p.exists():
+                    paths.append(p)
+        else:
+            # Linux, macOS, Unix-like systems
+            unix_defaults = [
+                Path("/etc/nginx"),
+                Path("/usr/local/etc/nginx"),
+                Path("/opt/nginx/conf"),
+                Path("/etc/httpd/conf"),
+                Path("/etc/apache2"),
+            ]
+            for p in unix_defaults:
+                if p.exists():
+                    paths.append(p)
+
+        return paths
+
     def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[NginxFinding]:
         findings: List[NginxFinding] = []
         excluded = set(excluded_dirs or [])
 
-        for path in target_dir.rglob("*"):
-            if not path.is_file():
+        # Gather target directory and valid system fallbacks
+        search_directories = [target_dir] if target_dir and target_dir.exists() else []
+        for fallback in self._get_system_fallback_paths():
+            if fallback not in search_directories:
+                search_directories.append(fallback)
+
+        for directory in search_directories:
+            if not directory.exists():
                 continue
-            if any(part in excluded for part in path.parts):
-                continue
-            if path.suffix.lower() in self.CONFIG_EXTENSIONS or path.name in ["nginx.conf", "httpd.conf"]:
-                findings.extend(self.scan_file(path))
+            for path in directory.rglob("*"):
+                if not path.is_file():
+                    continue
+                if any(part in excluded for part in path.parts):
+                    continue
+                if path.suffix.lower() in self.CONFIG_EXTENSIONS or path.name in ["nginx.conf", "httpd.conf"]:
+                    findings.extend(self.scan_file(path))
 
         return findings
 
@@ -167,9 +206,6 @@ class NginxScanner:
                     "severity": "HIGH"
                 })
 
-        # 3. Shor susceptibility & post-quantum posture
-        # Standard classical curves (secp256r1, X25519) are Shor-vulnerable.
-        # Hybrid PQC curves (e.g. X25519Kyber768Draft00, X25519MLKEM768) are quantum-safe.
         quantum_safe = False
         shor_vuln = True
         if "kyber" in ecdh_curve.lower() or "mlkem" in ecdh_curve.lower():

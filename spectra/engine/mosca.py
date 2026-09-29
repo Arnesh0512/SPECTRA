@@ -30,6 +30,7 @@ class MoscaEvaluation:
     sndl_vulnerable: bool
     recommended_pqc_replacement: str
     rationale: str
+    scenario_name: str = "pessimistic"
 
     def to_dict(self) -> Dict:
         return {
@@ -43,6 +44,7 @@ class MoscaEvaluation:
             "sndl_vulnerable": self.sndl_vulnerable,
             "recommended_pqc_replacement": self.recommended_pqc_replacement,
             "rationale": self.rationale,
+            "scenario_name": self.scenario_name,
         }
 
 
@@ -125,15 +127,19 @@ def count_codebase_loc(target_dir: Optional[Path], excluded_dirs: Optional[List[
 
 
 class MoscaRiskEngine:
-    """Evaluates quantum risk exposure across cryptographic assets using Mosca's inequality and true codebase COCOMO scale."""
+    """Evaluates quantum risk exposure across cryptographic assets using Mosca's inequality and multi-scenario Z horizons."""
 
     def __init__(self, policy_file: Optional[Path] = None, staff_size: int = 6):
         if policy_file is None:
             policy_file = Path(__file__).resolve().parent.parent.parent / "cbom_policy.json"
         self.policy = self._load_policy(policy_file)
         
-        scenarios = self.policy.get("crqc_arrival_scenarios", {"pessimistic": 2033})
-        self.target_crqc_year = scenarios.get("pessimistic", 2033)
+        # Load all three CRQC arrival scenarios from policy[cite: 10]
+        self.scenarios = self.policy.get("crqc_arrival_scenarios", {
+            "pessimistic": 2033,
+            "central": 2038,
+            "optimistic": 2045
+        })
         self.default_shelf_life = 7
         self.algorithm_risks = self.policy.get("algorithm_risk_definitions", {})
         self.staff_size = max(1, staff_size)
@@ -182,25 +188,33 @@ class MoscaRiskEngine:
         blended_y = cocomo_baseline * 0.4 + (local_multiplier * domain_modifier * 0.6)
         return max(0.5, round(blended_y, 2))
 
-    def evaluate_asset(self, asset: NormalizedCryptoAsset, total_repository_loc: int = 10000) -> MoscaEvaluation:
+    def evaluate_asset_for_scenario(self, asset: NormalizedCryptoAsset, scenario_name: str, target_year: int, total_repository_loc: int = 10000) -> MoscaEvaluation:
         current_year = datetime.now().year
-        z = max(1, self.target_crqc_year - current_year)
+        z = max(1, target_year - current_year)
         x = self.default_shelf_life
         y = self._calculate_dynamic_y(asset, total_repository_loc)
 
+        # Safely handle list or string algorithms
+        algo_val = asset.algorithm
+        if isinstance(algo_val, list):
+            algo_upper = " ".join(str(a) for a in algo_val).upper()
+            algo_str = ", ".join(str(a) for a in algo_val)
+        else:
+            algo_upper = str(algo_val).upper()
+            algo_str = str(algo_val)
+
         if asset.quantum_safe or not asset.shor_vulnerable:
             return MoscaEvaluation(
-                asset_id=asset.asset_id, algorithm=asset.algorithm,
+                asset_id=f"{asset.asset_id}-{scenario_name}", algorithm=algo_str,
                 shelf_life_x=x, migration_time_y=0.0, quantum_threshold_z=z,
                 is_inequality_breached=False, risk_level="QUANTUM_SAFE",
                 sndl_vulnerable=False, recommended_pqc_replacement="None (Quantum Safe)",
-                rationale="Asset is inherently quantum-resistant."
+                rationale=f"[{scenario_name.capitalize()} Scenario] Asset is inherently quantum-resistant.",
+                scenario_name=scenario_name
             )
 
         # Classical asymmetric primitives are vulnerable to Shor's algorithm
         breached = (x + y) > z
-        algo_upper = asset.algorithm.upper()
-        
         risk_def = self.algorithm_risks.get(algo_upper, {})
         base_severity = risk_def.get("severity", "HIGH")
         replacement = risk_def.get("replacement", "ML-KEM-768 / ML-DSA-65")
@@ -211,22 +225,34 @@ class MoscaRiskEngine:
 
         if breached and sndl:
             risk = "CRITICAL"
-            rationale = f"Mosca inequality breached ({x} + {y} > {z}). Vulnerable to Store-Now-Decrypt-Later (SNDL) attacks across codebase scale."
+            rationale = f"[{scenario_name.capitalize()} Scenario - Z={z} yrs] Inequality breached ({x} + {y} > {z}). Vulnerable to Store-Now-Decrypt-Later (SNDL)."
         elif breached:
             risk = base_severity
-            rationale = f"Mosca inequality breached ({x} + {y} > {z}). Codebase migration footprint requires proactive scheduling."
+            rationale = f"[{scenario_name.capitalize()} Scenario - Z={z} yrs] Inequality breached ({x} + {y} > {z}). Remediation required."
         else:
             risk = "MEDIUM"
-            rationale = f"Mosca inequality currently holds ({x} + {y} <= {z})."
+            rationale = f"[{scenario_name.capitalize()} Scenario - Z={z} yrs] Inequality holds ({x} + {y} <= {z})."
 
         return MoscaEvaluation(
-            asset_id=asset.asset_id, algorithm=asset.algorithm,
+            asset_id=f"{asset.asset_id}-{scenario_name}", algorithm=algo_str,
             shelf_life_x=x, migration_time_y=y, quantum_threshold_z=z,
             is_inequality_breached=breached, risk_level=risk,
             sndl_vulnerable=sndl, recommended_pqc_replacement=replacement or "ML-KEM-768",
-            rationale=rationale
+            rationale=rationale, scenario_name=scenario_name
         )
+
+    def evaluate_asset(self, asset: NormalizedCryptoAsset, total_repository_loc: int = 10000) -> Dict[str, MoscaEvaluation]:
+        """Evaluates an asset across all three Z scenarios (pessimistic, central, optimistic)."""
+        evaluations = {}
+        for scenario_name, target_year in self.scenarios.items():
+            evals = self.evaluate_asset_for_scenario(asset, scenario_name, target_year, total_repository_loc)
+            evaluations[evals.asset_id] = evals
+        return evaluations
 
     def evaluate_batch(self, assets: List[NormalizedCryptoAsset], target_dir: Optional[Path] = None, excluded_dirs: Optional[List[str]] = None) -> Dict[str, MoscaEvaluation]:
         total_repo_loc = count_codebase_loc(target_dir, excluded_dirs)
-        return {asset.asset_id: self.evaluate_asset(asset, total_repo_loc) for asset in assets}
+        batch_evals = {}
+        for asset in assets:
+            scenario_results = self.evaluate_asset(asset, total_repo_loc)
+            batch_evals.update(scenario_results)
+        return batch_evals

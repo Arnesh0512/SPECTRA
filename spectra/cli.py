@@ -1,9 +1,9 @@
 """
 spectra.cli
 ================
-Command-line interface entry point for crypto-recon.
-Coordinates target directory audits, live endpoint scans, Mosca quantum risk analysis,
-and CycloneDX 1.6 CBOM JSON generation.
+Interactive Terminal User Interface (TUI) command-line interface for Spectra.
+Guides users through scan parameters, executes domain discovery with progress bars,
+evaluates Mosca quantum risk across scenarios, and generates CycloneDX 1.6 CBOMs.
 """
 
 from pathlib import Path
@@ -11,10 +11,13 @@ from typing import List, Optional
 import sys
 
 from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Prompt, Confirm
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 from rich.table import Table
 import typer
 
-from spectra.config import ScanConfig
+from spectra.config import ScanConfig, ScanTargets, ScannerToggles, SourceScannerConfig, NetworkConfig, OutputConfig
 from spectra.engine import CryptoAnalysisEngine
 from spectra.scanners import MasterScanner, ScanResults
 from spectra.utils.logger import (
@@ -37,87 +40,131 @@ app = typer.Typer(
 
 @app.command()
 def scan(
-    target: Path = typer.Option(
-        Path("."),
-        "--target",
-        "-t",
-        help="Root path of codebase/system to scan.",
-        exists=True,
-        file_okay=False,
-        dir_okay=True,
-        readable=True,
-        resolve_path=True,
-    ),
-    output: Path = typer.Option(
-        Path("cbom.json"),
-        "--output",
-        "-o",
-        help="Destination path for CycloneDX 1.6 CBOM JSON document.",
-        resolve_path=True,
-    ),
-    config_file: Optional[Path] = typer.Option(
-        None,
-        "--config",
-        "-c",
-        help="Path to custom config.yaml configuration file.",
-        resolve_path=True,
-    ),
-    endpoint: Optional[List[str]] = typer.Option(
-        None,
-        "--endpoint",
-        "-e",
-        help="Network endpoint(s) to scan via live TLS handshake (e.g. example.com:443). Can be repeated.",
-    ),
     fail_on_critical: bool = typer.Option(
         False,
         "--fail-on-critical",
-        help="Return a non-zero exit code if CRITICAL cryptographic vulnerabilities or breached Mosca inequalities are detected.",
+        help="Return a non-zero exit code if CRITICAL vulnerabilities or breached Mosca inequalities are detected.",
     ),
 ) -> None:
-    """Run an end-to-end multi-domain cryptographic scan and export a CycloneDX 1.6 CBOM."""
+    """Run an interactive TUI wizard to configure and execute a multi-domain cryptographic scan."""
     console.print(BANNER, style="bold cyan")
-    log_header("Initializing Reconnaissance Engine")
 
-    # 1. Load Configuration
-    if config_file and config_file.is_file():
-        log_info(f"Loading custom configuration from: {config_file}")
-        config = ScanConfig.load(config_file)
-    else:
-        config = ScanConfig()
-
-    # Override endpoints if passed via CLI
-    if endpoint:
-        config.network.endpoints = endpoint
-
-    # 2. Execute Scanners across all domains
-    scanner = MasterScanner(config)
+    # --- Interactive TUI Setup Wizard ---
+    log_header("Step 1: Target & Output Configuration")
+    target_str = Prompt.ask("Enter target codebase directory path", default=".")
+    target_path = Path(target_str).resolve()
     
-    net_cfg = getattr(config, "network", None)
-    net_endpoints = getattr(net_cfg, "endpoints", []) if net_cfg else []
+    output_str = Prompt.ask("Enter destination CBOM output file path", default="cbom.json")
+    output_path = Path(output_str).resolve()
 
-    results: ScanResults = scanner.scan_all(
-        target_dir=target,
-        endpoints=net_endpoints,
+    log_header("Step 2: Source Code Exclusions & Options")
+    default_excludes = ".git, node_modules, vendor, target, dist, build, .venv, venv, __pycache__"
+    exclude_input = Prompt.ask(
+        "Enter directories to exclude [dim](comma-separated)[/dim]",
+        default=default_excludes
     )
+    excluded_dirs = [d.strip() for d in exclude_input.split(",") if d.strip()]
+
+    log_header("Step 3: Scanner Modules Configuration")
+    console.print("[bold underline]Source Scanners Selection:[/bold underline]")
+    scan_source = Confirm.ask("  ↳ Scan codebase source files", default=True)
+    scan_deps = Confirm.ask("  ↳ Scan Depedency", default=True)
+
+    console.print("\n[bold underline]Artifact Scanners Selection:[/bold underline]")
+    scan_certs = Confirm.ask("  ↳ Scan X.509 Certificates (.pem, .crt)", default=True)
+    scan_docker = Confirm.ask("  ↳ Scan Docker container files (Dockerfile, compose)", default=True)
+    scan_binaries = Confirm.ask("  ↳ Scan binary executable files (.so, .dll, .exe)", default=True)
+    scan_runtime_artifacts = Confirm.ask("  ↳ Scan runtime packages and processes", default=True)
+    enable_artifacts = scan_certs or scan_docker or scan_binaries or scan_runtime_artifacts
+
+    console.print("\n[bold underline]Infrastructure Scanners Selection:[/bold underline]")
+    scan_terraform = Confirm.ask("  ↳ Scan Terraform / IaC configurations (.tf)", default=True)
+    scan_cloud_hsm = Confirm.ask("  ↳ Scan Cloud KMS / HSM references (AWS/Azure)", default=True)
+    enable_infra = scan_terraform or scan_cloud_hsm
+
+    console.print("\n[bold underline]Network Domain Inspection:[/bold underline]")
+    enable_network = Confirm.ask("Scan live remote TLS endpoints / web servers?", default=False)
+    endpoints: List[str] = []
+    if enable_network:
+        endpoints_input = Prompt.ask("Enter domain endpoints [dim](comma-separated, e.g., example.com:443, api.internal:443)[/dim]", default="")
+        endpoints = [e.strip() for e in endpoints_input.split(",") if e.strip()]
+
+    # --- Build ScanConfig Programmatically ---
+    config = ScanConfig(
+        scan_targets=ScanTargets(
+            project_root=str(target_path),
+            domains=endpoints,
+            nginx_config_paths=[]
+        ),
+        scanners=ScannerToggles(
+            enable_source=scan_source,
+            enable_artifacts=enable_artifacts,
+            enable_runtime=scan_runtime_artifacts,
+            enable_infrastructure=enable_infra,
+            enable_network=enable_network,
+            scan_dependencies=scan_deps,
+        ),
+        source_scanner=SourceScannerConfig(
+            use_ripgrep=True,  # Always true
+            excluded_directories=excluded_dirs
+        ),
+        network=NetworkConfig(endpoints=endpoints),
+        output=OutputConfig(output_file=str(output_path))
+    )
+
+    log_header("Step 4: Executing Multi-Domain Reconnaissance")
+    scanner = MasterScanner(config)
+
+    # Execute scanners with Rich Progress Bar per step
+    with Progress(
+        SpinnerColumn("dots", style="cyan"),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=40),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        
+        task_init = progress.add_task("[cyan]Initializing scanners & credential discovery...", total=100)
+        progress.update(task_init, advance=100)
+
+        task_scan = progress.add_task("[green]Running AST, Dependency, & Domain Scanners...", total=100)
+        results: ScanResults = scanner.scan_all(
+            target_dir=target_path,
+            endpoints=endpoints,
+        )
+        progress.update(task_scan, advance=100)
 
     if results.total_count == 0:
         log_warning("No cryptographic primitives, artifacts, or configs detected in scan scope.")
         return
 
-    # 3. Normalize, Correlate, Evaluate Mosca, and Build CBOM
-    engine = CryptoAnalysisEngine(config)
-    cbom, correlated, mosca_evals = engine.process(
-        raw_findings=results.all_findings,
-        output_file=output,
-    )
+    log_success(f"Discovered {results.total_count} raw cryptographic finding(s) across domains.")
 
-    # 4. Render Summary Tables
+    # --- Engine Processing & CBOM Synthesis with Progress Bars ---
+    with Progress(
+        SpinnerColumn("monkey", style="magenta"),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=40),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        
+        task_engine = progress.add_task("[magenta]Executing Crypto Analysis, COCOMO Sizing, & Mosca Evaluation...", total=100)
+        engine = CryptoAnalysisEngine(config)
+        cbom, correlated, mosca_evals = engine.process(
+            raw_findings=results.all_findings,
+            output_file=output_path,
+            target_dir=target_path,
+        )
+        progress.update(task_engine, advance=100)
+
+    # --- Render Summary Tables ---
     _print_findings_summary(correlated)
     _print_quantum_risk_summary(mosca_evals)
 
-    log_success(f"CycloneDX 1.6 CBOM successfully generated: {output}")
+    log_success(f"CycloneDX 1.6 CBOM successfully generated and saved to: {output_path}")
 
-    # 5. Check failure conditions
+    # Check failure conditions
     critical_breaches = any(
         m.risk_level == "CRITICAL" for m in mosca_evals.values()
     ) or any(
@@ -215,31 +262,39 @@ def _print_findings_summary(correlated_assets: list) -> None:
 
 
 def _print_quantum_risk_summary(mosca_evals: dict) -> None:
-    """Displays a summary table of Mosca quantum evaluations."""
-    table = Table(title="Mosca Quantum Risk Assessment Summary")
-    table.add_column("Risk Level", style="bold", width=14)
-    table.add_column("Count", justify="center", width=8)
-    table.add_column("SNDL Exposed", justify="center", width=14)
-    table.add_column("PQC Action Required", width=45)
-
+    """Displays separate Mosca quantum risk assessment tables for Optimistic, Central, and Pessimistic scenarios."""
+    scenarios = ["optimistic", "central", "pessimistic"]
     levels = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "QUANTUM_SAFE"]
-    for lvl in levels:
-        matches = [m for m in mosca_evals.values() if m.risk_level == lvl]
-        count = len(matches)
-        if count == 0:
-            continue
-        sndl_count = sum(1 for m in matches if m.sndl_vulnerable)
-        style = "red" if lvl in ["CRITICAL", "HIGH"] else ("yellow" if lvl == "MEDIUM" else "green")
 
-        sample_remediation = matches[0].recommended_pqc_replacement if matches else "None"
-        table.add_row(
-            f"[{style}]{lvl}[/{style}]",
-            str(count),
-            str(sndl_count),
-            sample_remediation[:44],
-        )
+    for scenario in scenarios:
+        table = Table(title=f"Mosca Quantum Risk Assessment ({scenario.capitalize()} Scenario)")
+        table.add_column("Risk Level", style="bold", width=16)
+        table.add_column("Count", justify="center", width=10)
+        table.add_column("SNDL Exposed", justify="center", width=16)
+        table.add_column("PQC Action Required", width=40)
 
-    console.print(table)
+        has_rows = False
+        for lvl in levels:
+            matches = [m for m in mosca_evals.values() if getattr(m, "scenario_name", "central") == scenario and m.risk_level == lvl]
+            count = len(matches)
+            if count == 0:
+                continue
+            
+            has_rows = True
+            sndl_count = sum(1 for m in matches if m.sndl_vulnerable)
+            style = "red" if lvl in ["CRITICAL", "HIGH"] else ("yellow" if lvl == "MEDIUM" else "green")
+            sample_remediation = matches[0].recommended_pqc_replacement if matches else "None"
+
+            table.add_row(
+                f"[{style}]{lvl}[/{style}]",
+                str(count),
+                str(sndl_count),
+                sample_remediation[:39],
+            )
+
+        if has_rows:
+            console.print(table)
+            console.print()  # Spacing between tables
 
 
 def main() -> None:
