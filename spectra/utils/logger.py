@@ -52,7 +52,7 @@ logger = setup_logger()
 
 def print_banner(version: str = "1.0.0") -> None:
     """Renders the CLI startup banner with quantum styling."""
-    title = Text("CRYPTO-RECON", style="bold cyan")
+    title = Text("spectra", style="bold cyan")
     subtitle = Text(f"Enterprise Cryptographic Discovery & PQC Risk Engine (v{version})", style="italic white")
     panel_content = Text.assemble(title, "\n", subtitle)
 

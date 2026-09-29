@@ -22,7 +22,7 @@ CBOM_SCHEMA_VERSION = "http://cyclonedx.org/schema/bom-1.6.schema.json"
 class CBOMBuilder:
     """Constructs a strict CycloneDX 1.6 CBOM document from correlated assets and Mosca assessments."""
 
-    def __init__(self, application_name: str = "crypto-recon-target", version: str = "1.0.0"):
+    def __init__(self, application_name: str = "spectra-target", version: str = "1.0.0"):
         self.application_name = application_name
         self.version = version
 
@@ -47,7 +47,7 @@ class CBOMBuilder:
                     "components": [
                         {
                             "type": "application",
-                            "name": "crypto-recon",
+                            "name": "spectra",
                             "version": "1.0.0",
                             "description": "Enterprise Multi-Domain Cryptographic Inventory and CBOM Engine",
                         }
@@ -222,7 +222,7 @@ class CBOMBuilder:
             vuln_id = f"CRYPTO-VULN-{asset.asset_id}-{idx+1}"
             vulns.append({
                 "id": vuln_id,
-                "source": {"name": "crypto-recon"},
+                "source": {"name": "spectra"},
                 "ratings": [{
                     "severity": finding.get("severity", "MEDIUM").lower(),
                     "method": "other",

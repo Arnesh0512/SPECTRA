@@ -7,7 +7,7 @@ container definitions, and active local runtime environments.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from spectra.config import ScanConfig
 from spectra.utils.logger import log_info, log_step
@@ -28,24 +28,30 @@ class ArtifactScanOrchestrator:
         self.container_scanner = ContainerScanner()
         self.runtime_scanner = RuntimeScanner()
 
-    def scan(self, target_dir: Path) -> List[Dict[str, Any]]:
+    def scan(self, target_dir: Path, progress_callback: Optional[Callable[[str, float], None]] = None) -> List[Dict[str, Any]]:
         """Scans directory for artifacts, and inspects local runtime environment if enabled."""
         log_step(f"Scanning cryptographic artifacts and runtime in: {target_dir}")
         excluded = self.config.source_scanner.excluded_directories
 
         # 1. Scan Certificates & Keys
+        if progress_callback:
+            progress_callback("Domain 2/4: Auditing X.509 Certificates & Asymmetric Keys...", 45.0)
         cert_findings: List[CertFinding] = self.cert_scanner.scan_directory(
             target_dir, excluded_dirs=excluded
         )
         log_info(f"Discovered {len(cert_findings)} certificate/key artifact(s).")
 
         # 2. Scan Binaries & Shared Libraries
+        if progress_callback:
+            progress_callback("Domain 2/4: Auditing Executable Binaries & Shared Libraries...", 52.0)
         binary_findings: List[BinaryFinding] = self.binary_scanner.scan_directory(
             target_dir, excluded_dirs=excluded
         )
         log_info(f"Discovered {len(binary_findings)} binary/library artifact(s) with crypto linkage.")
 
         # 3. Scan Container Definitions & Dockerfiles
+        if progress_callback:
+            progress_callback("Domain 2/4: Auditing Container Definitions & Dockerfiles...", 58.0)
         container_findings: List[ContainerFinding] = self.container_scanner.scan_directory(
             target_dir, excluded_dirs=excluded
         )
@@ -54,6 +60,8 @@ class ArtifactScanOrchestrator:
         # 4. Scan Active Runtime Environment (Processes, loaded .so files, python packages)
         runtime_findings: List[RuntimeFinding] = []
         if getattr(self.config.scanners, "enable_runtime", True):
+            if progress_callback:
+                progress_callback("Domain 2/4: Inspecting Process Memory & Dynamic Runtime Packages...", 62.0)
             runtime_findings = self.runtime_scanner.scan(target_dir)
             log_info(f"Discovered {len(runtime_findings)} active runtime package/process finding(s).")
 
