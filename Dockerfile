@@ -37,7 +37,7 @@ COPY cbom_policy.json .
 COPY config.example.yaml .
 COPY spectra/ ./spectra/
 
-# Install crypto-recon as a package
+# Install spectra as a package
 RUN pip install --no-cache-dir -e .
 
 # Create non-root runner user
@@ -45,5 +45,5 @@ RUN useradd -u 10001 -m appuser && \
     chown -R appuser:appuser /app
 USER appuser
 
-ENTRYPOINT ["crypto-recon"]
+ENTRYPOINT ["spectra"]
 CMD ["--help"]

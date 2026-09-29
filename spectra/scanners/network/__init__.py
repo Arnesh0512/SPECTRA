@@ -7,7 +7,7 @@ and low-impact DNS/port/SSH network reconnaissance.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from spectra.config import ScanConfig
 from spectra.utils.logger import log_info, log_step
@@ -28,12 +28,19 @@ class NetworkScanOrchestrator:
         self.protocol_scanner = ProtocolScanner()
         self.recon_scanner = NetworkReconScanner()
 
-    def scan(self, target_dir: Optional[Path] = None, endpoints: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    def scan(
+        self,
+        target_dir: Optional[Path] = None,
+        endpoints: Optional[List[str]] = None,
+        progress_callback: Optional[Callable[[str, float], None]] = None,
+    ) -> List[Dict[str, Any]]:
         """Executes static network audits, live endpoint handshakes, and reconnaissance."""
         all_findings: List[Dict[str, Any]] = []
 
         # 1. Static Configuration Auditing (Nginx, SSH)
         if target_dir and target_dir.exists():
+            if progress_callback:
+                progress_callback("Domain 4/4: Auditing Static Nginx & Protocol Configs...", 90.0)
             log_step(f"Scanning network configuration files in: {target_dir}")
             excluded = self.config.source_scanner.excluded_directories
 
@@ -57,6 +64,8 @@ class NetworkScanOrchestrator:
         target_endpoints = endpoints or default_endpoints
 
         if target_endpoints:
+            if progress_callback:
+                progress_callback(f"Domain 4/4: Handshaking {len(target_endpoints)} Network Endpoint(s)...", 95.0)
             log_step(f"Executing active TLS handshakes and recon against {len(target_endpoints)} endpoint(s)")
             recon_targets = self.recon_scanner.explicit_targets(target_endpoints)
             if recon_targets:

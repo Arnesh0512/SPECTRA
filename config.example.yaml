@@ -1,4 +1,4 @@
-# Global Configuration for Crypto-Recon Scanner
+# Global Configuration for spectra Scanner
 
 scan_targets:
   # Target directory for source code, binaries, and local configs

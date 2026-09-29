@@ -7,7 +7,7 @@ cloud environments (AWS KMS & ACM, Azure Key Vault), and host hardware devices (
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from spectra.config import ScanConfig
 from spectra.utils.logger import log_info, log_step, log_warning
@@ -36,13 +36,15 @@ class InfrastructureScanOrchestrator:
         # Initialize Azure scanner
         self.azure_scanner = AzureScanner()
 
-    def scan(self, target_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+    def scan(self, target_dir: Optional[Path] = None, progress_callback: Optional[Callable[[str, float], None]] = None) -> List[Dict[str, Any]]:
         """Scans local Terraform directories, IaC manifests, host hardware, AWS, and Azure cloud environments."""
         all_findings: List[Dict[str, Any]] = []
         excluded = self.config.source_scanner.excluded_directories
 
         # 1. Scan Terraform IaC Configurations (.tf files)
         if target_dir and target_dir.exists():
+            if progress_callback:
+                progress_callback("Domain 3/4: Auditing Terraform Configurations (.tf)...", 70.0)
             log_step(f"Scanning Terraform configurations in: {target_dir}")
             tf_findings: List[TerraformFinding] = self.terraform_scanner.scan_directory(
                 target_dir=target_dir,
@@ -54,6 +56,8 @@ class InfrastructureScanOrchestrator:
 
         # 2. Scan Generic IaC Manifests (Kubernetes YAML, CloudFormation JSON/YAML)
         if target_dir and target_dir.exists():
+            if progress_callback:
+                progress_callback("Domain 3/4: Auditing Generic IaC Manifests (K8s, CFN)...", 75.0)
             log_step(f"Scanning generic IaC manifests in: {target_dir}")
             iac_findings: List[IaCFinding] = self.iac_scanner.scan_directory(
                 target_dir=target_dir,
@@ -64,6 +68,8 @@ class InfrastructureScanOrchestrator:
                 all_findings.append(f.to_dict())
 
         # 3. Scan Host Hardware (TPMs, PKCS#11 HSMs, CPU Crypto Acceleration)
+        if progress_callback:
+            progress_callback("Domain 3/4: Auditing Host TPM & CPU Acceleration...", 78.0)
         log_step("Scanning host cryptographic hardware (TPM, HSM, CPU instruction sets)")
         hw_findings: List[HardwareFinding] = self.hardware_scanner.scan()
         log_info(f"Discovered {len(hw_findings)} hardware cryptographic device(s)/capability.")
@@ -75,6 +81,8 @@ class InfrastructureScanOrchestrator:
         aws_enabled = getattr(aws_cfg, "enabled", False) if aws_cfg else False
 
         if aws_enabled:
+            if progress_callback:
+                progress_callback("Domain 3/4: Auditing AWS KMS & ACM Keys...", 81.0)
             log_step("Auditing AWS Cloud Cryptographic Assets (KMS & ACM)")
             if not self.aws_scanner.is_available():
                 log_warning("boto3 is not installed or importable; skipping live AWS scan.")
@@ -89,6 +97,8 @@ class InfrastructureScanOrchestrator:
         azure_enabled = getattr(azure_cfg, "enabled", False) if azure_cfg else False
 
         if azure_enabled:
+            if progress_callback:
+                progress_callback("Domain 3/4: Auditing Azure Key Vault Keys & Certs...", 83.0)
             log_step("Auditing Azure Cloud Cryptographic Assets (Key Vault Keys & Certificates)")
             if not self.azure_scanner.is_available():
                 log_warning("Azure SDK libraries (azure-identity, azure-mgmt-keyvault, azure-keyvault-keys) are not installed; skipping live Azure scan.")

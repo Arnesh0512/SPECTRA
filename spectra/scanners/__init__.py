@@ -10,7 +10,7 @@ Unified scanning layer coordinating all four reconnaissance domains:
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from spectra.config import ScanConfig
 from spectra.scanners.artifacts import ArtifactScanOrchestrator
@@ -57,12 +57,14 @@ class MasterScanner:
         self,
         target_dir: Optional[Path] = None,
         endpoints: Optional[List[str]] = None,
+        progress_callback: Optional[Callable[[str, float], None]] = None,
     ) -> ScanResults:
         """
         Executes active scanners across configured targets.
 
         :param target_dir: Local filesystem directory to audit.
         :param endpoints: Optional list of network endpoints (host:port) to scan.
+        :param progress_callback: Optional callback receiving (description, percent_complete).
         :return: Consolidated ScanResults instance.
         """
         results = ScanResults()
@@ -72,6 +74,8 @@ class MasterScanner:
 
         # 1. Source Code & Dependency Scanning (strictly gated by enable_source)
         if resolved_dir and self.config.scanners.enable_source:
+            if progress_callback:
+                progress_callback("Domain 1/4: Analyzing Dependency Manifests...", 5.0)
             log_step("Domain 1/4: Source Code Analysis")
             
             all_source_raw = []
@@ -87,45 +91,78 @@ class MasterScanner:
                 log_info(f"Discovered {len(dep_findings)} crypto dependency declaration(s) and function mappings.")
                 all_source_raw.extend(dep_findings)
 
+            if progress_callback:
+                progress_callback("Domain 1/4: Pre-filtering Candidate Files...", 12.0)
+
             # Scan source AST/patterns
             candidate_files = self.source_orchestrator._find_candidates(resolved_dir)
             log_info(f"Identified {len(candidate_files)} candidate crypto source file(s) for deep analysis.")
 
-            for file_path in candidate_files:
+            total_candidates = len(candidate_files)
+            for idx, file_path in enumerate(candidate_files, start=1):
                 ext = file_path.suffix.lower()
                 scanner = self.source_orchestrator.ext_to_scanner.get(ext)
                 if scanner:
                     findings = scanner.parse_file(file_path)
                     all_source_raw.extend(findings)
+                if progress_callback and total_candidates > 0:
+                    pct = 12.0 + (idx / total_candidates) * 28.0
+                    progress_callback(f"Domain 1/4: AST Parsing ({idx}/{total_candidates}) {file_path.name}", pct)
 
             results.source_findings = [f.to_dict() for f in all_source_raw]
             log_info(f"Source scan completed: {len(results.source_findings)} findings.")
+            if progress_callback:
+                progress_callback("Domain 1/4: Source Code Analysis Complete", 40.0)
         else:
             log_info("Source Code Analysis skipped by user configuration.")
+            if progress_callback:
+                progress_callback("Domain 1/4: Skipped by Configuration", 40.0)
 
         # 2. Cryptographic Artifacts Scanning
         if resolved_dir and self.config.scanners.enable_artifacts:
             log_step("Domain 2/4: Cryptographic Artifacts Analysis")
-            results.artifact_findings = self.artifact_orchestrator.scan(resolved_dir)
+            if progress_callback:
+                progress_callback("Domain 2/4: Scanning Cryptographic Artifacts & Binaries...", 45.0)
+            results.artifact_findings = self.artifact_orchestrator.scan(resolved_dir, progress_callback=progress_callback)
             log_info(f"Artifact scan completed: {len(results.artifact_findings)} findings.")
+            if progress_callback:
+                progress_callback("Domain 2/4: Cryptographic Artifacts Complete", 65.0)
+        else:
+            if progress_callback:
+                progress_callback("Domain 2/4: Skipped by Configuration", 65.0)
 
         # 3. Infrastructure and Cloud Scanning
         if self.config.scanners.enable_infrastructure:
             log_step("Domain 3/4: Infrastructure & IaC Analysis")
-            results.infrastructure_findings = self.infrastructure_orchestrator.scan(target_dir=resolved_dir)
+            if progress_callback:
+                progress_callback("Domain 3/4: Scanning Infrastructure & Cloud Credentials...", 70.0)
+            results.infrastructure_findings = self.infrastructure_orchestrator.scan(target_dir=resolved_dir, progress_callback=progress_callback)
             log_info(f"Infrastructure scan completed: {len(results.infrastructure_findings)} findings.")
+            if progress_callback:
+                progress_callback("Domain 3/4: Infrastructure & IaC Complete", 85.0)
+        else:
+            if progress_callback:
+                progress_callback("Domain 3/4: Skipped by Configuration", 85.0)
 
         # 4. Network and Protocol Scanning
         if self.config.scanners.enable_network:
             log_step("Domain 4/4: Network & Protocol Analysis")
+            if progress_callback:
+                progress_callback("Domain 4/4: Scanning Network Endpoints & TLS Protocols...", 90.0)
             net_cfg = getattr(self.config, "network", None)
             default_eps = getattr(net_cfg, "endpoints", []) if net_cfg else []
             target_eps = endpoints or default_eps
             results.network_findings = self.network_orchestrator.scan(
                 target_dir=resolved_dir,
-                endpoints=target_eps
+                endpoints=target_eps,
+                progress_callback=progress_callback
             )
             log_info(f"Network scan completed: {len(results.network_findings)} findings.")
+            if progress_callback:
+                progress_callback("Domain 4/4: Network & Protocol Analysis Complete", 100.0)
+        else:
+            if progress_callback:
+                progress_callback("Domain 4/4: Skipped by Configuration", 100.0)
 
         log_header(f"Reconnaissance Completed — Total Raw Findings: {results.total_count}")
         return results
