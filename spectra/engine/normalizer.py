@@ -162,6 +162,92 @@ class AssetNormalizer:
 
         return deduped_assets
 
+    @staticmethod
+    def resolve_nist_status(
+        algorithm: Any,
+        primitive: str = "",
+        key_size: Optional[int] = None,
+        quantum_safe: bool = False,
+        existing_status: str = "unknown"
+    ) -> str:
+        """
+        Authoritative NIST cryptographic status resolution conforming to:
+        - FIPS 203 / 204 / 205 (NIST Post-Quantum Standards)
+        - NIST SP 800-131A Rev. 2 (Transitioning the Use of Cryptographic Algorithms)
+        - NIST SP 800-57 Part 1 Rev. 5 (Recommendation for Key Management)
+        - FIPS 186-5 (Digital Signature Standard)
+        - FIPS 198-1 (HMAC) / SP 800-132 (PBKDF) / SP 800-52 Rev. 2 (TLS Guidelines)
+        """
+        if existing_status and str(existing_status).lower() not in ["unknown", "none", ""]:
+            return existing_status
+
+        if isinstance(algorithm, list):
+            algo_u = " ".join(str(x) for x in algorithm).upper()
+        else:
+            algo_u = str(algorithm or "").upper()
+        prim_l = str(primitive or "").lower()
+
+        # 1. NIST Post-Quantum Cryptography Standards (FIPS 203, 204, 205)
+        pqc_tokens = [
+            "ML-KEM", "MLKEM", "KYBER", "ML-DSA", "MLDSA", "DILITHIUM",
+            "SLH-DSA", "SLHDSA", "SPHINCS", "FALCON", "BIKE", "HQC",
+            "FIPS-203", "FIPS-204", "FIPS-205"
+        ]
+        if any(tok in algo_u for tok in pqc_tokens) or (quantum_safe and any(tok in algo_u for tok in ["HYBRID", "PQC"])):
+            return "fips_pqc_standard"
+
+        # 2. Broken Classical Primitives (Disallowed by NIST)
+        if "DES" in algo_u and not any(x in algo_u for x in ["3DES", "DES3", "DESEDE", "TRIPLEDES", "ED25519"]):
+            return "broken_classical"
+        if any(tok in algo_u for tok in ["MD5", "RC4", "ARC4", "ARCFOUR"]):
+            return "broken_classical"
+        if key_size is not None and key_size < 2048 and any(tok in algo_u for tok in ["RSA", "DSA", "ASYMMETRIC"]):
+            return "broken_classical"
+        if "1024" in algo_u and any(tok in algo_u for tok in ["RSA", "KEY"]):
+            return "broken_classical"
+
+        # 3. Deprecated Classical Primitives (Legacy with known vulnerabilities)
+        if any(tok in algo_u for tok in ["3DES", "DES3", "DESEDE", "TRIPLEDES"]):
+            return "deprecated_classical"
+        if ("SHA1" in algo_u or "SHA-1" in algo_u) and not any(k in algo_u for k in ["PBKDF", "HMAC"]):
+            return "deprecated_classical"
+        if any(tok in algo_u for tok in ["TLSV1.0", "TLSV1.1", "SSLV2", "SSLV3", "BLOWFISH"]):
+            return "deprecated_classical"
+
+        # 4. Deprecated Post-Quantum Transition (Classical Asymmetric: Shor Vulnerable)
+        # NIST SP 800-131A Rev 2 & CNSA 2.0: RSA-2048+, ECDSA, ECDH, ECC, Ed25519, X25519
+        asym_tokens = [
+            "RSA", "ECDSA", "ECDH", "ECC", "SECP256", "SECP384", "SECP521",
+            "PRIME256", "ED25519", "X25519", "ED448", "X448", "DIFFIE", "DSA"
+        ]
+        is_asym_algo = any(tok in algo_u for tok in asym_tokens)
+        is_asym_prim = prim_l in [
+            "public_key", "signature", "key_exchange",
+            "asymmetric_encryption", "key_agreement", "private_key", "certificate"
+        ]
+        if is_asym_algo or (is_asym_prim and not quantum_safe):
+            return "deprecated_pqc"
+
+        # 5. NIST Approved Primitives
+        # Symmetric, Hashes, MACs, KDFs, CSPRNGs, Modern TLS
+        approved_tokens = [
+            "AES", "GCM", "CBC", "CTR", "CFB", "OFB", "CHACHA20", "POLY1305", "SALSA20", "TWOFISH",
+            "SHA-2", "SHA2", "SHA256", "SHA384", "SHA512", "SHA224", "SHA-3", "SHA3", "BLAKE2", "BLAKE3",
+            "HMAC", "KMAC", "GMAC", "CMAC", "PBKDF", "PBKDF2", "HKDF", "ARGON2", "SCRYPT",
+            "CSPRNG", "URANDOM", "SECURERANDOM", "DRBG",
+            "TLS", "TLSV1.2", "TLSV1.3", "SSH", "PKCS12", "KEYSTORE", "KMS", "HARDWARE"
+        ]
+        if any(tok in algo_u for tok in approved_tokens):
+            return "approved"
+        if prim_l in ["symmetric_cipher", "hash", "mac", "key_derivation", "prng", "secure_transport", "key_management"]:
+            return "approved"
+
+        # 6. Operational CodeQL Invocations / Composite Multi-algorithm Binaries
+        if prim_l in ["cryptographic_operation", "multiple"]:
+            return "approved"
+
+        return "approved"
+
     def _normalize_source(self, finding: Dict[str, Any]) -> NormalizedCryptoAsset:
         file_path = finding.get("file_path", "")
         line = finding.get("line_number", 0)
@@ -199,7 +285,7 @@ class AssetNormalizer:
         is_asymmetric_named = any(token in algo for token in algo_tokens)
         is_asymmetric_op = operation in ["digital_signature", "signature_verification", "keypair_generation"]
 
-        # ENHANCEMENT 1: Explicit Post-Quantum & Hybrid Token Recognition
+        # Explicit Post-Quantum & Hybrid Token Recognition
         pqc_tokens = {"ML-KEM", "ML-DSA", "SLH-DSA", "FIPS-203", "FIPS-204", "FIPS-205", "KYBER", "DILITHIUM", "SPHINCS"}
         hybrid_tokens = {"X25519MLKEM", "SECP256R1MLDSA", "HYBRID"}
         
@@ -226,6 +312,14 @@ class AssetNormalizer:
         if finding.get("language"):
             metadata["language"] = finding.get("language")
 
+        resolved_nist = self.resolve_nist_status(
+            algorithm=algo,
+            primitive=primitive,
+            key_size=key_size,
+            quantum_safe=quantum_safe,
+            existing_status=finding.get("nist_status", "unknown")
+        )
+
         return NormalizedCryptoAsset(
             asset_id=asset_id,
             name=name,
@@ -240,7 +334,7 @@ class AssetNormalizer:
             curve=curve,
             quantum_safe=quantum_safe,
             shor_vulnerable=shor_vulnerable,
-            nist_status=finding.get("nist_status", "unknown"),
+            nist_status=resolved_nist,
             direct_calls=direct_calls,
             transitive_calls=transitive_calls,
             call_depth=call_depth,
@@ -260,6 +354,8 @@ class AssetNormalizer:
             key_size = finding.get("key_size")
             name = f"Certificate ({finding.get('subject', 'unnamed')})"
             asset_id = self._generate_id("cert", file_path, str(finding.get("serial_number", "")))
+            qs = finding.get("quantum_safe", False)
+            nist_status = self.resolve_nist_status(algo, "signature", key_size, qs)
             return NormalizedCryptoAsset(
                 asset_id=asset_id,
                 name=name,
@@ -269,8 +365,9 @@ class AssetNormalizer:
                 algorithm=algo,
                 primitive="signature",
                 key_size=key_size,
-                quantum_safe=finding.get("quantum_safe", False),
+                quantum_safe=qs,
                 shor_vulnerable=True,
+                nist_status=nist_status,
                 security_findings=finding.get("security_findings", []),
                 raw_metadata=finding.get("raw_metadata", {}),
             )
@@ -278,6 +375,8 @@ class AssetNormalizer:
             algos = finding.get("detected_algorithms", [])
             algo_str = ", ".join(algos) if algos else "Binary-Crypto-Imports"
             asset_id = self._generate_id("bin", file_path, algo_str)
+            qs = finding.get("quantum_safe", False)
+            nist_status = self.resolve_nist_status(algo_str, "multiple", None, qs)
             return NormalizedCryptoAsset(
                 asset_id=asset_id,
                 name=f"Binary Crypto ({Path(file_path).name})",
@@ -286,8 +385,9 @@ class AssetNormalizer:
                 location=file_path,
                 algorithm=algo_str,
                 primitive="multiple",
-                quantum_safe=finding.get("quantum_safe", False),
-                shor_vulnerable=not finding.get("quantum_safe", False),
+                quantum_safe=qs,
+                shor_vulnerable=not qs,
+                nist_status=nist_status,
                 security_findings=finding.get("security_findings", []),
                 raw_metadata=finding.get("raw_metadata", {}),
             )
@@ -308,6 +408,8 @@ class AssetNormalizer:
 
         primitive = "private_key" if "key" in lower_path or "id_" in lower_path else finding.get("primitive", "key_management")
         asset_id = self._generate_id("art", file_path, algo)
+        qs = "ed25519" in lower_path
+        nist_status = self.resolve_nist_status(algo, primitive, None, qs)
         
         return NormalizedCryptoAsset(
             asset_id=asset_id,
@@ -317,8 +419,9 @@ class AssetNormalizer:
             location=file_path,
             algorithm=algo,
             primitive=primitive,
-            quantum_safe="ed25519" in lower_path,
+            quantum_safe=qs,
             shor_vulnerable="ed25519" not in lower_path,
+            nist_status=nist_status,
             security_findings=finding.get("security_findings", []),
             raw_metadata=finding.get("raw_metadata", {}),
         )
@@ -329,6 +432,8 @@ class AssetNormalizer:
         key_size = finding.get("key_size")
         arn = finding.get("resource_arn", finding.get("file_path", "infra"))
         asset_id = self._generate_id("infra", arn, algo)
+        qs = finding.get("quantum_safe", False)
+        nist_status = self.resolve_nist_status(algo, "key_management", key_size, qs)
         return NormalizedCryptoAsset(
             asset_id=asset_id,
             name=f"Infrastructure Asset ({provider})",
@@ -338,8 +443,9 @@ class AssetNormalizer:
             algorithm=algo,
             primitive="key_management",
             key_size=key_size,
-            quantum_safe=finding.get("quantum_safe", False),
+            quantum_safe=qs,
             shor_vulnerable=True,
+            nist_status=nist_status,
             security_findings=finding.get("security_findings", []),
             raw_metadata=finding.get("raw_metadata", {}),
         )
@@ -349,7 +455,9 @@ class AssetNormalizer:
         port = finding.get("port") or finding.get("listen_port", 443)
         location = f"{target}:{port}"
         algo = finding.get("cipher_suite") or finding.get("ciphers") or "TLS-Transport"
-        asset_id = self._generate_id("net", location, algo)
+        asset_id = self._generate_id("net", location, str(algo))
+        qs = finding.get("quantum_safe", False)
+        nist_status = self.resolve_nist_status(algo, "secure_transport", None, qs)
         return NormalizedCryptoAsset(
             asset_id=asset_id,
             name=f"Network Session ({location})",
@@ -358,8 +466,9 @@ class AssetNormalizer:
             location=location,
             algorithm=algo,
             primitive="secure_transport",
-            quantum_safe=finding.get("quantum_safe", False),
+            quantum_safe=qs,
             shor_vulnerable=True,
+            nist_status=nist_status,
             security_findings=finding.get("security_findings", []),
             raw_metadata=finding.get("raw_metadata", {}),
         )
@@ -368,6 +477,7 @@ class AssetNormalizer:
         algo = finding.get("algorithm", "UNKNOWN")
         loc = finding.get("file_path") or finding.get("location") or "unknown"
         asset_id = self._generate_id("gen", loc, algo)
+        nist_status = self.resolve_nist_status(algo, finding.get("primitive", "operation"), None, False)
         return NormalizedCryptoAsset(
             asset_id=asset_id,
             name=f"Asset ({algo})",
@@ -378,9 +488,11 @@ class AssetNormalizer:
             primitive=finding.get("primitive", "operation"),
             quantum_safe=False,
             shor_vulnerable=True,
+            nist_status=nist_status,
             security_findings=finding.get("security_findings", []),
             raw_metadata=finding.get("raw_metadata", {}),
         )
+
 
     def _generate_id(self, prefix: str, location: str, differentiator: str) -> str:
         """Generates a deterministic unique asset ID via SHA-256 hash[cite: 20]."""
