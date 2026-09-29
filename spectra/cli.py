@@ -141,8 +141,12 @@ def scan(
     log_success(f"Discovered {results.total_count} raw cryptographic finding(s) across domains.")
 
     # --- Engine Processing & CBOM Synthesis with Progress Bars ---
+    # Pre-resolve X completely outside the active progress context so the input prompt renders stably
+    from spectra.engine.mosca import MoscaRiskEngine
+    MoscaRiskEngine().get_resolved_shelf_life_x(target_path)
+
     with Progress(
-        SpinnerColumn("monkey", style="magenta"),
+        SpinnerColumn("circle", style="magenta"),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(bar_width=40),
         TimeElapsedColumn(),

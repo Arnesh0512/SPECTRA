@@ -1,8 +1,8 @@
 {
   "policy_metadata": {
-    "version": "2.0.0",
+    "version": "2.1.0",
     "name": "Enterprise Post-Quantum Cryptography & CBOM Policy",
-    "last_updated": "2026-09-29"
+    "last_updated": "2026-09-30"
   },
   "crqc_arrival_scenarios": {
     "pessimistic": 2033,
@@ -14,17 +14,33 @@
       "years": 0.01,
       "description": "Session tokens, OTPs, ephemeral TLS handshake state"
     },
+    "operational_logs": {
+      "years": 1.0,
+      "description": "System access logs, audit trails, and non-sensitive telemetry"
+    },
     "payment_card_data": {
       "years": 3.0,
       "description": "PCI-DSS cardholder dispute and authorization data"
+    },
+    "customer_pii": {
+      "years": 5.0,
+      "description": "Standard customer profile data, emails, and contact records"
     },
     "corporate_financials": {
       "years": 7.0,
       "description": "Statutory audit trails, corporate tax filings, and general ledger"
     },
+    "legal_contracts": {
+      "years": 10.0,
+      "description": "Executed vendor agreements, NDAs, and corporate legal archives"
+    },
     "proprietary_ip": {
       "years": 15.0,
       "description": "Trade secrets, patents, software source code, architectural blueprints"
+    },
+    "government_classified": {
+      "years": 20.0,
+      "description": "Defense-adjacent documents, restricted government project artifacts"
     },
     "healthcare_phi": {
       "years": 25.0,
