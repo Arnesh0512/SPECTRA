@@ -37,8 +37,19 @@ class NetworkConfig(BaseModel):
 
 
 class AWSConfig(BaseModel):
-    enabled: bool = Field(default=False, description="Enable live AWS KMS and ACM discovery")
+    enabled: bool = Field(
+        default_factory=lambda: (Path.home() / ".aws").exists(),
+        description="Auto-enabled if ~/.aws credentials exist"
+    )
     regions: List[str] = Field(default_factory=lambda: ["us-east-1"], description="AWS regions to scan")
+
+
+class AzureConfig(BaseModel):
+    enabled: bool = Field(
+        default_factory=lambda: (Path.home() / ".azure").exists(),
+        description="Auto-enabled if ~/.azure credentials exist"
+    )
+    subscription_id: Optional[str] = Field(default=None, description="Azure subscription ID")
 
 
 class MoscaConfig(BaseModel):
@@ -58,6 +69,7 @@ class ScanConfig(BaseModel):
     source_scanner: SourceScannerConfig = Field(default_factory=SourceScannerConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)
     aws: AWSConfig = Field(default_factory=AWSConfig)
+    azure: AzureConfig = Field(default_factory=AzureConfig)
     mosca_parameters: MoscaConfig = Field(default_factory=MoscaConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
 

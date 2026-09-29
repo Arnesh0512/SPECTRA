@@ -19,6 +19,15 @@ scanners:
   enable_infrastructure: true
   enable_network: true
 
+aws:
+  enabled: true
+  regions:
+    - "us-east-1"
+
+azure:
+  enabled: true
+  subscription_id: null
+
 source_scanner:
   use_ripgrep: true
   max_header_lines_checked: 100
@@ -31,6 +40,7 @@ source_scanner:
     - "build"
     - ".venv"
     - "venv"
+    - "__pycache__"
 
 mosca_parameters:
   default_data_classification: "corporate_financials"
