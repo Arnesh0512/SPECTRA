@@ -32,6 +32,7 @@ class CryptoAnalysisEngine:
         self,
         raw_findings: List[Dict[str, Any]],
         output_file: Optional[Path] = None,
+        target_dir: Optional[Path] = None,
     ) -> Tuple[Dict[str, Any], List[CorrelatedAsset], Dict[str, MoscaEvaluation]]:
         """
         Executes the analysis pipeline on raw scanner findings.
@@ -53,9 +54,14 @@ class CryptoAnalysisEngine:
         correlated_links = sum(len(ca.cross_domain_links) for ca in correlated_assets)
         log_info(f"Established {correlated_links} cross-domain relationship link(s) across {len(correlated_assets)} composite assets.")
 
-        # 3. Mosca Quantum Risk Evaluation
-        log_step("Step 3/4: Evaluating Mosca Theorem (X + Y > Z) and quantum exposure horizons")
-        mosca_evals: Dict[str, MoscaEvaluation] = self.mosca_engine.evaluate_batch(normalized_assets)
+        # 3. Mosca Quantum Risk Evaluation with Codebase-wide COCOMO Sizing
+        log_step("Step 3/4: Evaluating Mosca Theorem (X + Y > Z) with repository-wide COCOMO normalization")
+        excluded_dirs = self.config.source_scanner.excluded_directories
+        mosca_evals: Dict[str, MoscaEvaluation] = self.mosca_engine.evaluate_batch(
+            normalized_assets, 
+            target_dir=target_dir, 
+            excluded_dirs=excluded_dirs
+        )
         breached_count = sum(1 for m in mosca_evals.values() if m.is_inequality_breached)
         log_info(f"Identified {breached_count} asset(s) breaching Mosca's inequality threshold.")
 

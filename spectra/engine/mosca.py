@@ -12,21 +12,22 @@ from datetime import datetime
 from pathlib import Path
 import json
 import math
+import fnmatch
 
 from .normalizer import NormalizedCryptoAsset
 
 
 @dataclass
 class MoscaEvaluation:
-    """Quantum exposure metrics and Mosca inequality calculation for an asset[cite: 19]."""
+    """Quantum exposure metrics and Mosca inequality calculation for an asset."""
     asset_id: str
     algorithm: str
-    shelf_life_x: int  # Required confidentiality duration (years)
-    migration_time_y: float  # Dynamically calculated migration time (years/effort units)
-    quantum_threshold_z: int  # Estimated years until CRQC viability
-    is_inequality_breached: bool  # True if (X + Y > Z)
-    risk_level: str  # CRITICAL, HIGH, MEDIUM, LOW, QUANTUM_SAFE
-    sndl_vulnerable: bool  # Store Now, Decrypt Later susceptibility
+    shelf_life_x: int
+    migration_time_y: float
+    quantum_threshold_z: int
+    is_inequality_breached: bool
+    risk_level: str
+    sndl_vulnerable: bool
     recommended_pqc_replacement: str
     rationale: str
 
@@ -45,10 +46,88 @@ class MoscaEvaluation:
         }
 
 
-class MoscaRiskEngine:
-    """Evaluates quantum risk exposure across cryptographic assets using Mosca's inequality and cbom_policy.json[cite: 19]."""
+def parse_gitignore(target_dir: Path) -> List[str]:
+    """Parses .gitignore patterns if present."""
+    patterns = []
+    gitignore_path = target_dir / ".gitignore"
+    if gitignore_path.is_file():
+        try:
+            with open(gitignore_path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        patterns.append(line)
+        except Exception:
+            pass
+    return patterns
 
-    def __init__(self, policy_file: Optional[Path] = None):
+
+def is_ignored(path: Path, target_dir: Path, gitignore_patterns: List[str], excluded_dirs: set) -> bool:
+    """Checks if a file matches .gitignore or standard exclusion directories."""
+    try:
+        rel_path = path.relative_to(target_dir)
+    except ValueError:
+        return True
+
+    for part in rel_path.parts:
+        if part in excluded_dirs:
+            return True
+
+    rel_str = rel_path.as_posix()
+    for pattern in gitignore_patterns:
+        cleaned_pattern = pattern.rstrip("/")
+        if fnmatch.fnmatch(rel_str, cleaned_pattern) or fnmatch.fnmatch(path.name, cleaned_pattern):
+            return True
+        if pattern.endswith("/") and any(fnmatch.fnmatch(p, cleaned_pattern) for p in rel_path.parts):
+            return True
+
+    return False
+
+
+def count_codebase_loc(target_dir: Optional[Path], excluded_dirs: Optional[List[str]] = None) -> int:
+    """
+    Directly scans the target directory (ignoring .gitignore and library exclusions)
+    to compute the true codebase-wide Lines of Code (LOC).
+    """
+    if not target_dir or not target_dir.exists():
+        return 10000
+
+    excluded = set(excluded_dirs or [
+        ".git", "node_modules", "vendor", "target", "dist", 
+        "build", ".venv", "venv", "__pycache__", ".tox", ".pytest_cache"
+    ])
+    
+    gitignore_patterns = parse_gitignore(target_dir)
+    source_extensions = {
+        ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".kt", 
+        ".go", ".rs", ".c", ".cpp", ".cc", ".h", ".hpp", ".tf", ".hcl"
+    }
+
+    total_loc = 0
+    try:
+        for path in target_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in source_extensions:
+                continue
+            if is_ignored(path, target_dir, gitignore_patterns, excluded):
+                continue
+
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    total_loc += sum(1 for _ in f)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return max(1000, total_loc)
+
+
+class MoscaRiskEngine:
+    """Evaluates quantum risk exposure across cryptographic assets using Mosca's inequality and true codebase COCOMO scale."""
+
+    def __init__(self, policy_file: Optional[Path] = None, staff_size: int = 6):
         if policy_file is None:
             policy_file = Path(__file__).resolve().parent.parent.parent / "cbom_policy.json"
         self.policy = self._load_policy(policy_file)
@@ -57,6 +136,7 @@ class MoscaRiskEngine:
         self.target_crqc_year = scenarios.get("pessimistic", 2033)
         self.default_shelf_life = 7
         self.algorithm_risks = self.policy.get("algorithm_risk_definitions", {})
+        self.staff_size = max(1, staff_size)
 
     def _load_policy(self, path: Path) -> Dict[str, Any]:
         if not path.is_file():
@@ -67,49 +147,46 @@ class MoscaRiskEngine:
         except Exception:
             return {}
 
-    def _calculate_dynamic_y(self, asset: NormalizedCryptoAsset) -> float:
-        """Computes dynamic migration time Y based on blast radius, LOC, and upstream dependencies[cite: 19]."""
+    def _calculate_cocomo_baseline_y(self, total_repository_loc: int) -> float:
+        """
+        Computes repository-wide baseline migration time using Basic COCOMO (Semi-detached mode):
+        Effort (Person-Months) = 3.0 * (KLOC)^1.12
+        Migration Time (Years) = Effort / (Staff Size * 12 months)
+        """
+        kloc = max(1.0, total_repository_loc / 1000.0)
+        effort_person_months = 3.0 * (kloc ** 1.12)
+        migration_years = effort_person_months / (self.staff_size * 12.0)
+        return round(migration_years, 2)
+
+    def _calculate_dynamic_y(self, asset: NormalizedCryptoAsset, total_repository_loc: int) -> float:
+        cocomo_baseline = self._calculate_cocomo_baseline_y(total_repository_loc)
+
         w1 = 1.0
         w2 = 1.2
         w3 = 0.4
-        omega = 0.25
-        
-        psi_1 = 2.0
-        psi_2 = 1.5
-        psi_3 = 0.8
-        omega_upstream = 3.5
-
-        # 1. Source code and call graph burden
         dir_calls = asset.direct_calls
         trans_calls = asset.transitive_calls
         depth = max(1, asset.call_depth)
-        loc = max(1, asset.loc)
 
-        source_burden = (w1 + (w2 * dir_calls) + (w3 * trans_calls * depth)) * (1.0 + omega * math.log(1.0 + loc))
-
-        # Apply upstream multiplier if the asset originates from an external package dependency
+        local_multiplier = (w1 + (w2 * dir_calls) + (w3 * trans_calls * depth))
         if asset.is_upstream_dependency:
-            dep_burden = (psi_1 + (psi_2 * dir_calls) + (psi_3 * trans_calls)) * omega_upstream
-            source_burden += dep_burden
+            local_multiplier *= 2.5
 
         # 2. Domain-specific adjustments (Infrastructure, Certificates, Network)
         domain_modifier = 1.0
         if asset.source_domain == "infrastructure":
-            domain_modifier = 2.0
-        elif asset.source_domain == "artifacts" and asset.asset_type == "certificate":
             domain_modifier = 1.5
         elif asset.source_domain == "network":
-            domain_modifier = 1.8
+            domain_modifier = 1.4
 
-        final_y = round(source_burden * domain_modifier, 2)
-        return max(0.5, final_y)
+        blended_y = cocomo_baseline * 0.4 + (local_multiplier * domain_modifier * 0.6)
+        return max(0.5, round(blended_y, 2))
 
-    def evaluate_asset(self, asset: NormalizedCryptoAsset) -> MoscaEvaluation:
-        """Applies Mosca's theorem to a single normalized crypto asset using dynamic Y[cite: 19]."""
+    def evaluate_asset(self, asset: NormalizedCryptoAsset, total_repository_loc: int = 10000) -> MoscaEvaluation:
         current_year = datetime.now().year
         z = max(1, self.target_crqc_year - current_year)
         x = self.default_shelf_life
-        y = self._calculate_dynamic_y(asset)
+        y = self._calculate_dynamic_y(asset, total_repository_loc)
 
         if asset.quantum_safe or not asset.shor_vulnerable:
             return MoscaEvaluation(
@@ -134,13 +211,13 @@ class MoscaRiskEngine:
 
         if breached and sndl:
             risk = "CRITICAL"
-            rationale = f"Mosca inequality breached ({x} + {y} > {z}). Vulnerable to Store-Now-Decrypt-Later (SNDL) attacks."
+            rationale = f"Mosca inequality breached ({x} + {y} > {z}). Vulnerable to Store-Now-Decrypt-Later (SNDL) attacks across codebase scale."
         elif breached:
             risk = base_severity
-            rationale = f"Mosca inequality breached ({x} + {y} > {z}). Signatures or keys vulnerable before migration."
+            rationale = f"Mosca inequality breached ({x} + {y} > {z}). Codebase migration footprint requires proactive scheduling."
         else:
             risk = "MEDIUM"
-            rationale = f"Mosca inequality currently holds ({x} + {y} <= {z}), but migration should be planned."
+            rationale = f"Mosca inequality currently holds ({x} + {y} <= {z})."
 
         return MoscaEvaluation(
             asset_id=asset.asset_id, algorithm=asset.algorithm,
@@ -150,6 +227,6 @@ class MoscaRiskEngine:
             rationale=rationale
         )
 
-    def evaluate_batch(self, assets: List[NormalizedCryptoAsset]) -> Dict[str, MoscaEvaluation]:
-        """Evaluates a collection of normalized assets, keyed by asset_id[cite: 19]."""
-        return {asset.asset_id: self.evaluate_asset(asset) for asset in assets}
+    def evaluate_batch(self, assets: List[NormalizedCryptoAsset], target_dir: Optional[Path] = None, excluded_dirs: Optional[List[str]] = None) -> Dict[str, MoscaEvaluation]:
+        total_repo_loc = count_codebase_loc(target_dir, excluded_dirs)
+        return {asset.asset_id: self.evaluate_asset(asset, total_repo_loc) for asset in assets}
