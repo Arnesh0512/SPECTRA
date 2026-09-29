@@ -19,7 +19,7 @@ from .normalizer import AssetNormalizer, NormalizedCryptoAsset
 
 
 class CryptoAnalysisEngine:
-    """Coordinates normalization, correlation, Mosca risk analysis, and CBOM production."""
+    """Coordinates normalization, correlation, Mosca multi-scenario risk analysis, and CBOM production."""
 
     def __init__(self, config: ScanConfig):
         self.config = config
@@ -54,8 +54,8 @@ class CryptoAnalysisEngine:
         correlated_links = sum(len(ca.cross_domain_links) for ca in correlated_assets)
         log_info(f"Established {correlated_links} cross-domain relationship link(s) across {len(correlated_assets)} composite assets.")
 
-        # 3. Mosca Quantum Risk Evaluation with Codebase-wide COCOMO Sizing
-        log_step("Step 3/4: Evaluating Mosca Theorem (X + Y > Z) with repository-wide COCOMO normalization")
+        # 3. Mosca Multi-Scenario Quantum Risk Evaluation (Pessimistic, Central, Optimistic Z horizons)
+        log_step("Step 3/4: Evaluating Mosca Theorem across all 3 CRQC arrival scenarios (Pessimistic, Central, Optimistic)")
         excluded_dirs = self.config.source_scanner.excluded_directories
         mosca_evals: Dict[str, MoscaEvaluation] = self.mosca_engine.evaluate_batch(
             normalized_assets, 
@@ -63,7 +63,7 @@ class CryptoAnalysisEngine:
             excluded_dirs=excluded_dirs
         )
         breached_count = sum(1 for m in mosca_evals.values() if m.is_inequality_breached)
-        log_info(f"Identified {breached_count} asset(s) breaching Mosca's inequality threshold.")
+        log_info(f"Evaluated {len(mosca_evals)} scenario-asset combinations ({breached_count} total inequality breaches across scenarios).")
 
         # 4. CycloneDX 1.6 CBOM Generation
         log_step("Step 4/4: Constructing CycloneDX 1.6 CBOM document")

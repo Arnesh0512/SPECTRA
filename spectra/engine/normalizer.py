@@ -253,6 +253,7 @@ class AssetNormalizer:
     def _normalize_artifact(self, finding: Dict[str, Any]) -> NormalizedCryptoAsset:
         artifact_type = finding.get("artifact_type", "unknown")
         file_path = finding.get("file_path", "")
+        lower_path = file_path.lower()
 
         if artifact_type == "x509_certificate":
             algo = finding.get("public_key_algorithm", "RSA")
@@ -290,7 +291,37 @@ class AssetNormalizer:
                 security_findings=finding.get("security_findings", []),
                 raw_metadata=finding.get("raw_metadata", {}),
             )
-        return self._normalize_fallback(finding)
+        
+        # Intelligent fallback for private keys and key stores based on filename/path clues
+        algo = finding.get("algorithm", "")
+        if not algo or algo == "UNKNOWN":
+            if "ed25519" in lower_path:
+                algo = "Ed25519"
+            elif "ecdsa" in lower_path:
+                algo = "ECDSA-P256"
+            elif "rsa" in lower_path or "id_rsa" in lower_path:
+                algo = "RSA-2048"
+            elif "p12" in lower_path or "keystore" in lower_path:
+                algo = "PKCS12-KeyStore"
+            else:
+                algo = "Asymmetric-Key"
+
+        primitive = "private_key" if "key" in lower_path or "id_" in lower_path else finding.get("primitive", "key_management")
+        asset_id = self._generate_id("art", file_path, algo)
+        
+        return NormalizedCryptoAsset(
+            asset_id=asset_id,
+            name=f"Key Artifact ({Path(file_path).name})",
+            asset_type="key",
+            source_domain="artifacts",
+            location=file_path,
+            algorithm=algo,
+            primitive=primitive,
+            quantum_safe="ed25519" in lower_path,
+            shor_vulnerable="ed25519" not in lower_path,
+            security_findings=finding.get("security_findings", []),
+            raw_metadata=finding.get("raw_metadata", {}),
+        )
 
     def _normalize_infrastructure(self, finding: Dict[str, Any]) -> NormalizedCryptoAsset:
         provider = finding.get("infra_provider", "infrastructure")

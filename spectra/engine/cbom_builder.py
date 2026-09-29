@@ -91,9 +91,15 @@ class CBOMBuilder:
 
             for edge in item.typed_edges:
                 target_id = edge.get("to")
-                if target_id and target_id != asset.asset_id:
+                # Safely handle target_id if it's a list or string
+                if isinstance(target_id, list):
+                    target_str = "_".join(str(t) for t in target_id)
+                else:
+                    target_str = str(target_id) if target_id else ""
+
+                if target_str and target_str != asset.asset_id:
                     # If target is another component ref, add it to dependsOn
-                    target_ref = f"crypto-ref-{target_id}" if not target_id.startswith("crypto-ref-") else target_id
+                    target_ref = f"crypto-ref-{target_str}" if not target_str.startswith("crypto-ref-") else target_str
                     deps.add(target_ref)
 
             # 3. Build Vulnerabilities
