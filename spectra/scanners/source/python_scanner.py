@@ -167,7 +167,7 @@ class CryptoASTVisitor(ast.NodeVisitor):
 
         # Compute call-graph and LOC metrics using BaseSourceScanner ripgrep helper
         symbol_name = full_call_name.split(".")[-1]
-        dirs, trans, depth, loc = self.scanner_ref.compute_call_metrics(self.file_path, symbol_name)
+        dirs, trans, depth = self.scanner_ref.compute_call_metrics(self.file_path, symbol_name)
 
         finding = SourceFinding(
             language="python",
@@ -186,7 +186,6 @@ class CryptoASTVisitor(ast.NodeVisitor):
             direct_calls=dirs,
             transitive_calls=trans,
             call_depth=depth,
-            loc=loc,
             security_findings=sec_findings,
             raw_metadata={
                 "call_name": full_call_name,

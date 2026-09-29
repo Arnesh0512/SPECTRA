@@ -32,11 +32,11 @@ class SourceFinding:
     operation: Optional[str] = None
     quantum_safe: bool = False
     nist_status: str = "unknown"
-    # Call-graph & LOC metrics for dynamic Y calculation
+    # Call-graph metrics for dynamic Y calculation
     direct_calls: int = 0
     transitive_calls: int = 0
     call_depth: int = 0
-    loc: int = 0
+    loc: int = 10
     security_findings: List[Dict[str, str]] = field(default_factory=list)
     raw_metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -94,21 +94,12 @@ class BaseSourceScanner(ABC):
         except Exception:
             return ""
 
-    def compute_call_metrics(self, file_path: Path, symbol_name: str) -> tuple[int, int, int, int]:
+    def compute_call_metrics(self, file_path: Path, symbol_name: str) -> tuple[int, int, int]:
         """
-        Calculates file LOC and uses ripgrep to trace direct callers and recursive 
-        transitive upstream callers (blast radius).
+        Uses ripgrep to trace direct callers and recursive transitive upstream callers (blast radius).
         """
-        # 1. Calculate file Lines of Code (LOC)
-        loc = 0
-        try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                loc = len(f.readlines())
-        except Exception:
-            loc = 10
-
         if not symbol_name:
-            return 0, 0, 0, loc
+            return 0, 0, 0
 
         project_root = file_path.parent.parent
         direct_call_files: Set[str] = set()
@@ -116,7 +107,7 @@ class BaseSourceScanner(ABC):
         
         # Fallback to python fallback walker or ripgrep execution
         if not command_exists("rg"):
-            return 0, 0, 0, loc
+            return 0, 0, 0
 
         # Step 2: Find direct callers referencing symbol_name or importing the module file stem
         file_stem = file_path.stem
@@ -146,7 +137,7 @@ class BaseSourceScanner(ABC):
         current_depth = 1 if direct_calls_count > 0 else 0
         max_depth = current_depth
 
-        while queue and current_depth < 4:  # Limit depth to 4 levels to maintain high scan performance
+        while queue and current_depth < 4:
             next_queue = set()
             for caller_file in queue:
                 caller_stem = Path(caller_file).stem
@@ -172,4 +163,4 @@ class BaseSourceScanner(ABC):
             else:
                 break
 
-        return direct_calls_count, len(transitive_call_files), max_depth, loc
+        return direct_calls_count, len(transitive_call_files), max_depth

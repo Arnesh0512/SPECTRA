@@ -115,11 +115,10 @@ class GoScanner(BaseSourceScanner):
             return []
 
         def _add_finding(finding: SourceFinding, symbol_name: str) -> None:
-            dirs, trans, depth, loc = self.compute_call_metrics(file_path, symbol_name)
+            dirs, trans, depth = self.compute_call_metrics(file_path, symbol_name)
             finding.direct_calls = dirs
             finding.transitive_calls = trans
             finding.call_depth = depth
-            finding.loc = loc
             findings.append(finding)
 
         # 1. Symmetric Ciphers

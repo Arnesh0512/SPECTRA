@@ -108,11 +108,10 @@ class CPPScanner(BaseSourceScanner):
 
         # Helper to enrich findings with computed call-graph metrics
         def _add_finding(finding: SourceFinding, symbol_name: str) -> None:
-            dirs, trans, depth, loc = self.compute_call_metrics(file_path, symbol_name)
+            dirs, trans, depth = self.compute_call_metrics(file_path, symbol_name)
             finding.direct_calls = dirs
             finding.transitive_calls = trans
             finding.call_depth = depth
-            finding.loc = loc
             findings.append(finding)
 
         # 1. OpenSSL EVP Cipher macros
