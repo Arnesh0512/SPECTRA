@@ -1,5 +1,5 @@
-schema_version: "1.0"
-description: "ELF/PE crypto evidence indicators."
+schema_version: "2.0"
+description: "ELF/PE crypto evidence indicators including Post-Quantum primitives."
 
 libraries:
   "libcrypto": "OpenSSL/libcrypto"
@@ -9,7 +9,7 @@ libraries:
   "libmbedtls": "Mbed TLS"
   "libwolfssl": "wolfSSL"
   "libbotan": "Botan"
-  "liboqs": "liboqs"
+  "liboqs": "Open Quantum Safe (liboqs)"
   "libgnutls": "GnuTLS"
   "libnss": "NSS"
 
@@ -31,6 +31,7 @@ symbol_patterns:
   - "crypto_"
   - "sodium_"
   - "OQS_"
+  - "PQCLEAN_"
   - "mbedtls_"
   - "wolfSSL"
   - "gnutls_"
@@ -40,6 +41,11 @@ symbol_patterns:
   - "MD5"
   - "DES"
   - "RC4"
+  - "ML_KEM"
+  - "ML_DSA"
+  - "KYBER"
+  - "DILITHIUM"
+  - "SPHINCS"
 
 string_patterns:
   - "-----BEGIN CERTIFICATE-----"
@@ -64,6 +70,10 @@ string_patterns:
   - "libssl"
   - "libsodium"
   - "liboqs"
+  - "ML-KEM"
+  - "ML-DSA"
+  - "Kyber"
+  - "Dilithium"
 
 algorithm_patterns:
   - "AES-(?:128|192|256)-(?:GCM|CBC|CTR|ECB)"
@@ -71,5 +81,7 @@ algorithm_patterns:
   - "MD5"
   - "SHA256"
   - "SHA512"
-  - "ML-KEM"
+  - "ML-KEM-(?:512|768|1024)"
+  - "ML-DSA-(?:44|65|87)"
   - "Kyber(?:-[0-9]+)?"
+  - "Dilithium(?:-[0-9]+)?"

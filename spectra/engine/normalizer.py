@@ -77,7 +77,7 @@ class AssetNormalizer:
         self.rules = self._load_rules(policy_rules_file)
 
     def _load_rules(self, path: Path) -> List[Dict[str, Any]]:
-        """Loads cryptographic policy rules from JSON configuration."""
+        """Loads cryptographic policy rules from JSON configuration[cite: 20]."""
         if not path.is_file():
             return []
         
@@ -89,7 +89,7 @@ class AssetNormalizer:
             return []
 
     def evaluate_rules(self, asset_dict: Dict[str, Any]) -> List[Dict[str, str]]:
-        """Evaluates asset attributes against loaded compliance and security rules with null safety."""
+        """Evaluates asset attributes against loaded compliance and security rules with null safety[cite: 20]."""
         violations: List[Dict[str, str]] = []
 
         for rule in self.rules:
@@ -132,7 +132,7 @@ class AssetNormalizer:
         return violations
 
     def normalize(self, raw_finding: Dict[str, Any]) -> NormalizedCryptoAsset:
-        """Normalizes a single raw finding based on its source domain."""
+        """Normalizes a single raw finding based on its source domain[cite: 20]."""
         domain = raw_finding.get("source_domain", "unknown")
 
         if domain == "source_code":
@@ -150,7 +150,7 @@ class AssetNormalizer:
         return asset
 
     def normalize_batch(self, raw_findings: List[Dict[str, Any]]) -> List[NormalizedCryptoAsset]:
-        """Normalizes and deduplicates a batch of raw findings into canonical assets."""
+        """Normalizes and deduplicates a batch of raw findings into canonical assets[cite: 20]."""
         seen_ids = set()
         deduped_assets: List[NormalizedCryptoAsset] = []
 
@@ -179,7 +179,7 @@ class AssetNormalizer:
         direct_calls = metadata.get("direct_calls", 0)
         transitive_calls = metadata.get("transitive_calls", 0)
         call_depth = metadata.get("call_depth", 0)
-        loc = metadata.get("loc", 10)  # Default fallback LOC
+        loc = metadata.get("loc", 10)
         is_upstream = metadata.get("finding_type") == "crypto_capable_dependency"
 
         if primitive in ["certificate", "x509"]:
@@ -199,7 +199,16 @@ class AssetNormalizer:
         is_asymmetric_named = any(token in algo for token in algo_tokens)
         is_asymmetric_op = operation in ["digital_signature", "signature_verification", "keypair_generation"]
 
-        if quantum_safe:
+        # ENHANCEMENT 1: Explicit Post-Quantum & Hybrid Token Recognition
+        pqc_tokens = {"ML-KEM", "ML-DSA", "SLH-DSA", "FIPS-203", "FIPS-204", "FIPS-205", "KYBER", "DILITHIUM", "SPHINCS"}
+        hybrid_tokens = {"X25519MLKEM", "SECP256R1MLDSA", "HYBRID"}
+        
+        is_pqc = any(token in algo for token in pqc_tokens) or any(token in algo for token in hybrid_tokens)
+        
+        if is_pqc:
+            quantum_safe = True
+            shor_vulnerable = False
+        elif quantum_safe:
             shor_vulnerable = False
         else:
             shor_vulnerable = (primitive in asymmetric_primitives) or is_asymmetric_named or is_asymmetric_op
@@ -343,7 +352,7 @@ class AssetNormalizer:
         )
 
     def _generate_id(self, prefix: str, location: str, differentiator: str) -> str:
-        """Generates a deterministic unique asset ID via SHA-256 hash."""
+        """Generates a deterministic unique asset ID via SHA-256 hash[cite: 20]."""
         seed = f"{prefix}:{location}:{differentiator}".encode("utf-8")
         digest = hashlib.sha256(seed).hexdigest()[:16]
         return f"{prefix}-{digest}"

@@ -56,6 +56,20 @@
             "equals": "TLSv1.1",
             "severity": "high",
             "message": "TLS 1.1 is obsolete."
+        },
+        {
+            "id": "ECDAT-CRYPTO-009",
+            "field": "key_size_less_than",
+            "value": 3072,
+            "severity": "medium",
+            "message": "RSA key size is below 3072 bits (recommended post-2030 threshold)."
+        },
+        {
+            "id": "ECDAT-CRYPTO-0010",
+            "field": "mode",
+            "equals": "CBC",
+            "severity": "medium",
+            "message": "CBC mode requires explicit authentication (HMAC) to prevent padding oracle attacks."
         }
     ]
 }

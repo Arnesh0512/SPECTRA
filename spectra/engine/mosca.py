@@ -18,7 +18,7 @@ from .normalizer import NormalizedCryptoAsset
 
 @dataclass
 class MoscaEvaluation:
-    """Quantum exposure metrics and Mosca inequality calculation for an asset."""
+    """Quantum exposure metrics and Mosca inequality calculation for an asset[cite: 19]."""
     asset_id: str
     algorithm: str
     shelf_life_x: int  # Required confidentiality duration (years)
@@ -46,7 +46,7 @@ class MoscaEvaluation:
 
 
 class MoscaRiskEngine:
-    """Evaluates quantum risk exposure across cryptographic assets using Mosca's inequality and cbom_policy.json."""
+    """Evaluates quantum risk exposure across cryptographic assets using Mosca's inequality and cbom_policy.json[cite: 19]."""
 
     def __init__(self, policy_file: Optional[Path] = None):
         if policy_file is None:
@@ -68,24 +68,16 @@ class MoscaRiskEngine:
             return {}
 
     def _calculate_dynamic_y(self, asset: NormalizedCryptoAsset) -> float:
-        """
-        Computes dynamic migration time Y based on:
-        - Direct calls & transitive depth (call-graph blast radius)
-        - Lines of Code (LOC) logarithmic scaling
-        - Upstream third-party dependency friction weight
-        - Infrastructure, artifact, and network scope weights
-        """
-        # Calibration weights
-        w1 = 1.0   # Baseline finding weight
-        w2 = 1.2   # Direct caller weight
-        w3 = 0.4   # Transitive depth multiplier
-        omega = 0.25 # LOC scaling factor
+        """Computes dynamic migration time Y based on blast radius, LOC, and upstream dependencies[cite: 19]."""
+        w1 = 1.0
+        w2 = 1.2
+        w3 = 0.4
+        omega = 0.25
         
-        # Upstream dependency burden parameters
         psi_1 = 2.0
         psi_2 = 1.5
         psi_3 = 0.8
-        omega_upstream = 3.5  # High vendor friction multiplier for uneditable libraries
+        omega_upstream = 3.5
 
         # 1. Source code and call graph burden
         dir_calls = asset.direct_calls
@@ -103,17 +95,17 @@ class MoscaRiskEngine:
         # 2. Domain-specific adjustments (Infrastructure, Certificates, Network)
         domain_modifier = 1.0
         if asset.source_domain == "infrastructure":
-            domain_modifier = 2.0  # Cloud KMS / Terraform state overhead
+            domain_modifier = 2.0
         elif asset.source_domain == "artifacts" and asset.asset_type == "certificate":
-            domain_modifier = 1.5  # Certificate reissuance and trust chain scope
+            domain_modifier = 1.5
         elif asset.source_domain == "network":
-            domain_modifier = 1.8  # Network cipher suite and protocol cutover risk
+            domain_modifier = 1.8
 
         final_y = round(source_burden * domain_modifier, 2)
-        return max(0.5, final_y)  # Minimum 0.5 years baseline migration time
+        return max(0.5, final_y)
 
     def evaluate_asset(self, asset: NormalizedCryptoAsset) -> MoscaEvaluation:
-        """Applies Mosca's theorem to a single normalized crypto asset using dynamic Y."""
+        """Applies Mosca's theorem to a single normalized crypto asset using dynamic Y[cite: 19]."""
         current_year = datetime.now().year
         z = max(1, self.target_crqc_year - current_year)
         x = self.default_shelf_life
@@ -136,7 +128,9 @@ class MoscaRiskEngine:
         base_severity = risk_def.get("severity", "HIGH")
         replacement = risk_def.get("replacement", "ML-KEM-768 / ML-DSA-65")
 
-        sndl = any(ind in algo_upper for ind in ["ECDH", "DH", "RSA", "ECC", "X25519", "KEM", "KYBER"])
+        # ENHANCEMENT 2: Guarded Mosca SNDL logic for Post-Quantum KEMs
+        is_pqc_kem = any(pqc in algo_upper for pqc in ["ML-KEM", "KYBER", "ML-DSA", "DILITHIUM", "SLH-DSA"])
+        sndl = (not is_pqc_kem) and any(ind in algo_upper for ind in ["ECDH", "DH", "RSA", "ECC", "X25519"])
 
         if breached and sndl:
             risk = "CRITICAL"
@@ -157,5 +151,5 @@ class MoscaRiskEngine:
         )
 
     def evaluate_batch(self, assets: List[NormalizedCryptoAsset]) -> Dict[str, MoscaEvaluation]:
-        """Evaluates a collection of normalized assets, keyed by asset_id."""
+        """Evaluates a collection of normalized assets, keyed by asset_id[cite: 19]."""
         return {asset.asset_id: self.evaluate_asset(asset) for asset in assets}
