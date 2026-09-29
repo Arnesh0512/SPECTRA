@@ -17,7 +17,7 @@ from spectra.utils.shell import command_exists, extract_printable_strings, run_c
 
 @dataclass
 class BinaryFinding:
-    """Represents cryptographic evidence found within a binary file."""
+    """Represents cryptographic evidence found within a binary file[cite: 28]."""
     source_domain: str = "artifacts"
     artifact_type: str = "compiled_binary"
     file_path: str = ""
@@ -45,7 +45,7 @@ class BinaryFinding:
 
 
 class BinaryScanner:
-    """Discovers and inspects compiled binaries for cryptographic linkages using rules/binary_indicators.yaml."""
+    """Discovers and inspects compiled binaries for cryptographic linkages using rules/binary_indicators.yaml[cite: 28]."""
 
     BINARY_EXTENSIONS = {".so", ".dll", ".dylib", ".exe", ".bin", ""}
 
@@ -96,7 +96,7 @@ class BinaryScanner:
         detected_symbols: Set[str] = set()
         detected_algos: Set[str] = set()
 
-        # 1. Inspect dynamic shared libraries
+        # 1. Inspect dynamic shared libraries[cite: 28]
         if binary_fmt == "ELF" and command_exists("readelf"):
             code, stdout, _ = run_command(["readelf", "-d", str(file_path)])
             if code == 0:
@@ -106,14 +106,14 @@ class BinaryScanner:
                             if clib in line.lower():
                                 linked_libs.add(self.indicators["libraries"][clib])
 
-        # 2. Inspect symbol tables
+        # 2. Inspect symbol tables[cite: 28]
         if binary_fmt == "ELF" and command_exists("readelf"):
             code, stdout, _ = run_command(["readelf", "-s", "--wide", str(file_path)])
             if code == 0:
                 for match in self.symbol_regex.finditer(stdout):
                     detected_symbols.add(match.group(0))
 
-        # 3. String pool extraction fallback & explicit algorithm matching
+        # 3. String pool extraction fallback & explicit algorithm matching[cite: 28]
         strings = extract_printable_strings(file_path, min_length=4, limit=30000)
         for s in strings:
             for clib in self.crypto_shared_libs:
@@ -125,7 +125,6 @@ class BinaryScanner:
                 for am in self.algo_regex.finditer(s):
                     detected_algos.add(am.group(0))
 
-        # Only create a finding if cryptographic footprint is present
         if not (linked_libs or detected_symbols or detected_algos):
             return None
 
@@ -143,6 +142,13 @@ class BinaryScanner:
                     "severity": "HIGH"
                 })
 
+        # Enhanced check for Post-Quantum cryptographic linkage in compiled binaries
+        pqc_identifiers = {"ML-KEM", "ML-DSA", "KYBER", "DILITHIUM", "SPHINCS", "LIBOQS"}
+        is_quantum_safe = any(
+            any(pqc in item.upper() for pqc in pqc_identifiers)
+            for item in list(linked_libs) + list(detected_symbols) + list(detected_algos)
+        )
+
         return BinaryFinding(
             source_domain="artifacts",
             artifact_type="compiled_binary",
@@ -151,13 +157,13 @@ class BinaryScanner:
             linked_crypto_libraries=sorted(list(linked_libs)),
             detected_symbols=sorted(list(detected_symbols)),
             detected_algorithms=sorted(list(detected_algos)),
-            quantum_safe=any("ML-KEM" in a.upper() or "KYBER" in a.upper() for a in detected_algos),
+            quantum_safe=is_quantum_safe,
             security_findings=sec_findings,
             raw_metadata={"strings_analyzed_count": len(strings)}
         )
 
     def _detect_format(self, file_path: Path) -> str:
-        """Determines binary header type using magic byte inspection."""
+        """Determines binary header type using magic byte inspection[cite: 28]."""
         try:
             with open(file_path, "rb") as f:
                 header = f.read(4)
@@ -172,7 +178,7 @@ class BinaryScanner:
             return "non_binary"
 
     def _is_binary_file(self, file_path: Path) -> bool:
-        """Checks if file contains null bytes within the first 1024 bytes."""
+        """Checks if file contains null bytes within the first 1024 bytes[cite: 28]."""
         try:
             with open(file_path, "rb") as f:
                 chunk = f.read(1024)

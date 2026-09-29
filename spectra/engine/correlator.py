@@ -15,7 +15,7 @@ from .normalizer import NormalizedCryptoAsset
 
 @dataclass
 class CorrelatedAsset:
-    """Represents a primary cryptographic asset linked to related cross-domain assets with typed relationships."""
+    """Represents a primary cryptographic asset linked to related cross-domain assets with typed relationships[cite: 18]."""
     primary_asset: NormalizedCryptoAsset
     related_asset_ids: List[str] = field(default_factory=list)
     correlation_type: str = "standalone"
@@ -33,10 +33,10 @@ class CorrelatedAsset:
 
 
 class AssetCorrelator:
-    """Correlates and deduplicates cryptographic findings, establishing typed relationship edges."""
+    """Correlates and deduplicates cryptographic findings, establishing typed relationship edges[cite: 18]."""
 
     def correlate(self, assets: List[NormalizedCryptoAsset]) -> List[CorrelatedAsset]:
-        """Correlates assets across domains and generates cross-layer relationship links."""
+        """Correlates assets across domains and generates cross-layer relationship links[cite: 18]."""
         correlated_results: List[CorrelatedAsset] = []
         consumed_ids: Set[str] = set()
 
@@ -46,7 +46,7 @@ class AssetCorrelator:
         iac_assets = [a for a in assets if a.source_domain == "infrastructure" and "iac" in a.asset_id]
         cloud_assets = [a for a in assets if a.source_domain == "infrastructure" and "aws" in a.asset_id]
 
-        # 1. Correlate Certificates with Network Services / Endpoints
+        # 1. Correlate Certificates with Network Services / Endpoints[cite: 18]
         for cert in cert_assets:
             cert_path = cert.location.lower()
             related_ids = []
@@ -81,7 +81,7 @@ class AssetCorrelator:
                     typed_edges=edges,
                 ))
 
-        # 2. Correlate IaC declarations with Cloud KMS / ACM instances
+        # 2. Correlate IaC declarations with Cloud KMS / ACM instances[cite: 18]
         for iac in iac_assets:
             res_name = iac.name.lower()
             related_ids = []
@@ -107,7 +107,24 @@ class AssetCorrelator:
                     typed_edges=edges,
                 ))
 
-        # 3. Add remaining non-correlated / standalone assets with default structural edges
+        # 3. ENHANCEMENT 3: Correlate Source Code Crypto Usages with Compiled Binary Artifacts
+        source_assets = [a for a in assets if a.source_domain == "source_code"]
+        artifact_binaries = [a for a in assets if a.source_domain == "artifacts" and a.asset_type == "algorithm"]
+
+        for src in source_assets:
+            for bin_art in artifact_binaries:
+                if src.algorithm.upper() in bin_art.algorithm.upper() or src.name.upper() in bin_art.name.upper():
+                    if src.asset_id not in consumed_ids:
+                        consumed_ids.add(src.asset_id)
+                        correlated_results.append(CorrelatedAsset(
+                            primary_asset=src,
+                            related_asset_ids=[bin_art.asset_id],
+                            correlation_type="source_to_compiled_binary",
+                            cross_domain_links=[f"Source primitive compiled into binary artifact: {bin_art.location}"],
+                            typed_edges=[{"from": src.asset_id, "type": "compiled_into", "to": bin_art.asset_id}]
+                        ))
+
+        # 4. Add remaining non-correlated / standalone assets with default structural edges[cite: 18]
         for asset in assets:
             if asset.asset_id not in consumed_ids:
                 consumed_ids.add(asset.asset_id)

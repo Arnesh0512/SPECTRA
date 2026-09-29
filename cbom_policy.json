@@ -1,8 +1,8 @@
 {
   "policy_metadata": {
-    "version": "1.0.0",
+    "version": "2.0.0",
     "name": "Enterprise Post-Quantum Cryptography & CBOM Policy",
-    "last_updated": "2026-01-15"
+    "last_updated": "2026-09-29"
   },
   "crqc_arrival_scenarios": {
     "pessimistic": 2033,
@@ -45,7 +45,7 @@
     "RSA": {
       "quantum_safe": false,
       "shor_vulnerable": true,
-      "replacement": "ML-KEM-768 / ML-DSA-65",
+      "replacement": "ML-KEM-768 / ML-DSA-65 (FIPS 203/204)",
       "severity": "CRITICAL"
     },
     "ECDSA": {
@@ -64,6 +64,12 @@
       "quantum_safe": false,
       "shor_vulnerable": true,
       "replacement": "ML-DSA-65 (FIPS 204)",
+      "severity": "CRITICAL"
+    },
+    "DH": {
+      "quantum_safe": false,
+      "shor_vulnerable": true,
+      "replacement": "ML-KEM-768 (FIPS 203)",
       "severity": "CRITICAL"
     },
     "AES-128": {
@@ -87,6 +93,13 @@
       "replacement": null,
       "severity": "LOW"
     },
+    "SHA-3": {
+      "quantum_safe": true,
+      "shor_vulnerable": false,
+      "grover_vulnerable": false,
+      "replacement": null,
+      "severity": "LOW"
+    },
     "MD5": {
       "quantum_safe": false,
       "shor_vulnerable": false,
@@ -102,6 +115,48 @@
       "replacement": "SHA-256 / SHA-3",
       "severity": "HIGH",
       "classical_broken": true
+    },
+    "ML-KEM-768": {
+      "quantum_safe": true,
+      "shor_vulnerable": false,
+      "grover_vulnerable": false,
+      "replacement": null,
+      "severity": "LOW"
+    },
+    "ML-KEM-1024": {
+      "quantum_safe": true,
+      "shor_vulnerable": false,
+      "grover_vulnerable": false,
+      "replacement": null,
+      "severity": "LOW"
+    },
+    "ML-DSA-65": {
+      "quantum_safe": true,
+      "shor_vulnerable": false,
+      "grover_vulnerable": false,
+      "replacement": null,
+      "severity": "LOW"
+    },
+    "ML-DSA-87": {
+      "quantum_safe": true,
+      "shor_vulnerable": false,
+      "grover_vulnerable": false,
+      "replacement": null,
+      "severity": "LOW"
+    },
+    "SLH-DSA": {
+      "quantum_safe": true,
+      "shor_vulnerable": false,
+      "grover_vulnerable": false,
+      "replacement": null,
+      "severity": "LOW"
+    },
+    "HQC": {
+      "quantum_safe": true,
+      "shor_vulnerable": false,
+      "grover_vulnerable": false,
+      "replacement": null,
+      "severity": "LOW"
     }
   }
 }
