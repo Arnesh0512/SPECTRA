@@ -2,8 +2,8 @@
 spectra.scanners.network.recon_scanner
 ===========================================
 Integrated low-impact network reconnaissance and observation engine.
-Absorbs DNS resolution, target provenance recovery, direct port/nmap scanning,
-and ssh-keyscan capabilities into the core library flow.
+Absorbs DNS resolution, target provenance recovery, direct port scanning,
+and pure Python SSH host key discovery into the core library flow.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import datetime as dt
 import hashlib
 import json
 import re
-import shutil
 import socket
 import ssl
 import subprocess
@@ -56,7 +55,7 @@ class NetworkReconFinding:
 
 
 class NetworkReconScanner:
-    """Executes low-impact DNS, port, TLS, and SSH network reconnaissance."""
+    """Executes low-impact DNS, port, TLS, and pure Python SSH network reconnaissance[cite: 29]."""
 
     def __init__(self, rules_file: Optional[Path] = None):
         if rules_file is None:
@@ -129,23 +128,39 @@ class NetworkReconScanner:
         return result
 
     def ssh_keyscan(self, hostname: str, port: int, timeout: int) -> List[Dict[str, Any]]:
-        executable = shutil.which("ssh-keyscan")
-        if not executable:
-            return []
-        command = [executable, "-T", str(timeout), "-p", str(port), "-t", "rsa,ecdsa,ed25519", hostname]
-        try:
-            completed = subprocess.run(command, text=True, capture_output=True, timeout=timeout + 2, errors="replace")
-        except subprocess.SubprocessError:
-            return []
+        """Cross-platform, pure Python SSH host key retrieval using Paramiko with socket fallback."""
         result = []
-        for line in completed.stdout.splitlines():
-            parts = line.split()
-            if len(parts) >= 3 and (parts[1].startswith("ssh-") or parts[1].startswith("ecdsa-")):
-                try:
-                    fingerprint = base64.b64encode(hashlib.sha256(base64.b64decode(parts[2])).digest()).decode().rstrip("=")
-                except Exception:
-                    continue
-                result.append({"host_key_algorithm": parts[1], "host_key_sha256": f"SHA256:{fingerprint}", "observation_source": "ssh-keyscan"})
+        try:
+            import paramiko
+            transport = paramiko.Transport((hostname, port))
+            transport.connect(timeout=timeout)
+            server_key = transport.get_remote_server_key()
+            transport.close()
+
+            if server_key:
+                key_algo = server_key.get_name()
+                key_bytes = server_key.asbytes()
+                fingerprint = base64.b64encode(hashlib.sha256(key_bytes).digest()).decode().rstrip("=")
+                result.append({
+                    "host_key_algorithm": key_algo,
+                    "host_key_sha256": f"SHA256:{fingerprint}",
+                    "observation_source": "paramiko_pure_python"
+                })
+        except ImportError:
+            try:
+                with socket.create_connection((hostname, port), timeout=timeout) as sock:
+                    sock.settimeout(timeout)
+                    banner = sock.recv(1024).decode("utf-8", errors="ignore").strip()
+                    if banner.startswith("SSH-"):
+                        result.append({
+                            "host_key_algorithm": "SSH-Server-Banner",
+                            "host_key_sha256": banner,
+                            "observation_source": "socket_banner_grab"
+                        })
+            except Exception:
+                pass
+        except Exception:
+            pass
         return result
 
     def scan_targets(self, targets: List[Dict[str, Any]], ports: Optional[List[int]] = None, timeout: float = 5.0) -> List[NetworkReconFinding]:

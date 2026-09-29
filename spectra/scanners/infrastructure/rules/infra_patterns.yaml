@@ -17,6 +17,7 @@ cloudformation_resources:
   - "AWS::CertificateManager::Certificate"
 
 pkcs11_libraries:
+  # Linux paths
   - "/usr/lib/softhsm/libsofthsm2.so"
   - "/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so"
   - "/usr/local/lib/softhsm/libsofthsm2.so"
@@ -25,6 +26,14 @@ pkcs11_libraries:
   - "/usr/lib/opensc-pkcs11.so"
   - "/usr/local/lib/opensc-pkcs11.so"
   - "/usr/lib/libykcs11.so"
+  # Windows paths
+  - "C:\\Program Files\\SoftHSM2\\lib\\softhsm2.dll"
+  - "C:\\Program Files (x86)\\SoftHSM2\\lib\\softhsm2.dll"
+  - "C:\\Program Files\\OpenSC Project\\OpenSC\\pkcs11\\opensc-pkcs11.dll"
+  # macOS paths
+  - "/usr/local/lib/softhsm/libsofthsm2.dylib"
+  - "/opt/homebrew/lib/softhsm/libsofthsm2.dylib"
+  - "/usr/local/lib/opensc-pkcs11.dylib"
 
 cpu_crypto_flags:
   - "aes"

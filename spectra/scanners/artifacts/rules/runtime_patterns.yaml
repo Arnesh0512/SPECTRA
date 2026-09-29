@@ -5,6 +5,10 @@ process_exclusions:
   - "kernel"
   - "systemd"
   - "kworker"
+  - "System"
+  - "Idle"
 
 target_shared_object_extensions:
   - ".so"
+  - ".dll"
+  - ".dylib"
