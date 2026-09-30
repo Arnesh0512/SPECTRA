@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 class ScanTargets(BaseModel):
     project_root: str = Field(default=".", description="Root directory to scan for code and artifacts")
+    container_target: Optional[str] = Field(default=None, description="Name or ID of Docker container scanned")
     domains: List[str] = Field(default_factory=list, description="Remote host:port targets for TLS inspection")
     aws_regions: List[str] = Field(default_factory=lambda: ["us-east-1"], description="AWS regions for discovery")
     nginx_config_paths: List[str] = Field(default_factory=list, description="Filesystem paths to nginx configurations")

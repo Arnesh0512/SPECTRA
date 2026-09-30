@@ -23,6 +23,10 @@ from .shell import (
     run_command,
     extract_printable_strings,
 )
+from .docker_client import (
+    DockerContainerClient,
+    UnixSocketHTTPConnection,
+)
 
 __all__ = [
     "console",
@@ -40,4 +44,6 @@ __all__ = [
     "get_command_path",
     "run_command",
     "extract_printable_strings",
+    "DockerContainerClient",
+    "UnixSocketHTTPConnection",
 ]
