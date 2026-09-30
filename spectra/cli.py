@@ -9,8 +9,12 @@ evaluates Mosca quantum risk across scenarios, and generates CycloneDX 1.6 CBOMs
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import os
+import shutil
+import socket
+import subprocess
 import sys
 import time
+import webbrowser
 
 from rich.align import Align
 from rich import box
@@ -57,6 +61,61 @@ app = typer.Typer(
     help="Enterprise Multi-Domain Cryptographic Inventory & CycloneDX 1.6 CBOM Generator",
     add_completion=False,
 )
+
+def _is_server_listening(host: str = "127.0.0.1", port: int = 3000) -> bool:
+    """Checks if a TCP port is currently open and responding."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.4)
+            s.connect((host, port))
+            return True
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        return False
+
+
+def _ensure_visualizer_running(cbom_path: Path, port: int = 3000) -> Optional[str]:
+    """Ensures the Spectra CBOM Web Visualizer server is running in the background."""
+    if _is_server_listening("127.0.0.1", port):
+        return f"http://localhost:{port}"
+
+    candidate_server_paths = [
+        Path(__file__).resolve().parent.parent / "web" / "server.js",
+        Path.cwd() / "web" / "server.js",
+        Path("/app/web/server.js"),
+        Path("C:/Users/Arnesh/spectra/web/server.js"),
+    ]
+    server_js = next((p for p in candidate_server_paths if p.exists()), None)
+    if not server_js:
+        return None
+
+    node_bin = shutil.which("node")
+    if not node_bin:
+        return None
+
+    try:
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+
+        env = os.environ.copy()
+        env["CBOM_PATH"] = str(cbom_path.resolve())
+
+        subprocess.Popen(
+            [node_bin, str(server_js), str(port), str(cbom_path.resolve())],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+            env=env,
+        )
+        for _ in range(15):
+            time.sleep(0.1)
+            if _is_server_listening("127.0.0.1", port):
+                break
+    except Exception:
+        pass
+
+    return f"http://localhost:{port}"
+
 
 # High-tech Cyber/Quantum Banner Art
 CYBER_BANNER = r"""
@@ -410,6 +469,24 @@ def scan(
     console.print(completion_panel)
     console.print(f"  [bold green]✔ Output Link:[/bold green] [bold bright_cyan underline][link={output_uri}]{output_path.resolve()}[/link][/bold bright_cyan underline]\n")
 
+    # --- Launch / Connect Interactive CBOM Web Visualizer ---
+    web_url = _ensure_visualizer_running(output_path, port=3000)
+    if web_url:
+        visualizer_panel = Panel(
+            Align.center(
+                f"[bold bright_cyan]🌐 INTERACTIVE CBOM & QUANTUM RISK WEB VISUALIZER[/bold bright_cyan]\n\n"
+                f"[bright_white]Click to inspect full CBOM in browser:[/bright_white]  "
+                f"[bold underline bright_yellow][link={web_url}]{web_url}[/link][/bold underline bright_yellow]\n\n"
+                f"[dim bright_white]Executive KPIs • Inventory Explorer • Mosca Simulator • NIST PQC Compliance • Graph Topology[/dim bright_white]"
+            ),
+            title="[bold bright_green] LOCALHOST CONSOLE [/bold bright_green]",
+            box=box.ROUNDED,
+            border_style="bright_cyan",
+            padding=(1, 2),
+        )
+        console.print(visualizer_panel)
+        console.print(f"  🌐 [bold bright_cyan]Interactive Visualizer Link:[/bold bright_cyan] [bold underline bright_yellow][link={web_url}]{web_url}[/link][/bold underline bright_yellow]\n")
+
     # Check failure conditions
     critical_breaches = any(
         m.risk_level == "CRITICAL" for m in mosca_evals.values()
@@ -492,6 +569,71 @@ def version() -> None:
     info_table.add_row("Quantum Threat Model", "[bold yellow]Mosca Inequality (X + Y > Z) Multi-Scenario[/bold yellow]")
     console.print()
     console.print(info_table)
+
+
+@app.command()
+def ui(
+    cbom: Path = typer.Option(
+        Path("C:/Users/Arnesh/Desktop/cbom.json"),
+        "--cbom",
+        "-c",
+        help="Path to the CycloneDX 1.6 CBOM JSON file.",
+    ),
+    port: int = typer.Option(
+        3000,
+        "--port",
+        "-p",
+        help="Port to serve the interactive CBOM visualizer on.",
+    ),
+    open_browser: bool = typer.Option(
+        True,
+        "--open/--no-open",
+        help="Automatically open the visualizer in default browser.",
+    ),
+) -> None:
+    """Launch the interactive Spectra CBOM & Quantum Risk Web Visualizer."""
+    _render_hero_banner()
+
+    resolved_cbom = cbom
+    if not resolved_cbom.exists():
+        candidates = [
+            Path("cbom.json"),
+            Path(os.path.expanduser("~")) / "Desktop" / "cbom.json",
+            Path("C:/Users/Arnesh/Desktop/cbom.json"),
+        ]
+        for c in candidates:
+            if c.exists():
+                resolved_cbom = c
+                break
+
+    if not resolved_cbom.exists():
+        log_error(f"CBOM file not found at '{cbom}'. Run 'spectra scan' first to generate a CBOM.")
+        sys.exit(1)
+
+    url = _ensure_visualizer_running(resolved_cbom, port=port)
+    if not url:
+        log_error("Could not launch web visualizer. Please ensure Node.js is installed.")
+        sys.exit(1)
+
+    panel = Panel(
+        Align.center(
+            f"[bold bright_cyan]SPECTRA CBOM VISUALIZER ONLINE[/bold bright_cyan]\n\n"
+            f"[bright_white]Local Dashboard:[/bright_white]   [bold underline bright_yellow][link={url}]{url}[/link][/bold underline bright_yellow]\n"
+            f"[bright_white]Ingested CBOM:[/bright_white]     [bold green]{resolved_cbom.resolve()}[/bold green]\n"
+            f"[bright_white]REST API:[/bright_white]          [cyan]{url}/api/cbom[/cyan]\n\n"
+            f"[dim bright_white]Features: Executive KPIs • Deep Inventory • Mosca Simulator • NIST PQC • Topology Graph[/dim bright_white]"
+        ),
+        title="[bold bright_green] WEB DASHBOARD [/bold bright_green]",
+        box=box.ROUNDED,
+        border_style="bright_blue",
+        padding=(1, 2),
+    )
+    console.print()
+    console.print(panel)
+    console.print(f"  🌐 [bold bright_cyan]Clickable Visualizer Link:[/bold bright_cyan] [bold underline bright_yellow][link={url}]{url}[/link][/bold underline bright_yellow]\n")
+
+    if open_browser:
+        webbrowser.open(url)
 
 
 def _print_findings_summary(correlated_assets: list) -> None:

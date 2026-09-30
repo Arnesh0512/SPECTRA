@@ -18,11 +18,13 @@ FROM python:3.11-slim AS runtime
 LABEL maintainer="Security Engineering Team"
 LABEL description="Enterprise Cryptographic Discovery & CycloneDX 1.6 CBOM Generator"
 
-# Install runtime utilities (ripgrep for fast regex search, OpenSSL for binary/cert inspection)
+# Install runtime utilities (ripgrep for fast regex search, OpenSSL for binary/cert inspection, Node.js for Web Visualizer)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ripgrep \
     openssl \
     ca-certificates \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed Python packages from builder
@@ -35,10 +37,18 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY cbom_policy.json .
 COPY config.example.yaml .
+COPY package.json .
+COPY web/ ./web/
 COPY spectra/ ./spectra/
+
+# Install Node dependencies for web visualizer
+RUN npm install --omit=dev
 
 # Install spectra as a package
 RUN pip install --no-cache-dir -e .
+
+# Expose web visualizer port
+EXPOSE 3000
 
 # Create non-root runner user
 RUN useradd -u 10001 -m appuser && \
@@ -46,4 +56,4 @@ RUN useradd -u 10001 -m appuser && \
 USER appuser
 
 ENTRYPOINT ["spectra"]
-CMD ["--help"]
+CMD ["--help"]

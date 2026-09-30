@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SPECTRA // Enterprise CBOM Visualizer & Quantum Risk Engine</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2306b6d4'><polygon points='12 2 2 7 12 12 22 7 12 2'/><polyline points='2 17 12 22 22 17'/><polyline points='2 12 12 17 22 12'/></svg>">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            cyber: {
+              900: '#070a12',
+              850: '#0b101d',
+              800: '#111827',
+              750: '#151e32',
+              700: '#1f2937',
+              600: '#374151',
+              cyan: '#06b6d4',
+              neon: '#22d3ee',
+              violet: '#8b5cf6',
+              purple: '#a855f7',
+              emerald: '#10b981',
+              amber: '#f59e0b',
+              crimson: '#ef4444',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-cyber-900 text-slate-100 font-sans min-h-screen flex flex-col antialiased selection:bg-cyan-500 selection:text-black">
+
+  <!-- Top Telemetry Header -->
+  <header class="h-16 bg-cyber-850/90 border-b border-cyan-900/40 backdrop-blur sticky top-0 z-40 flex items-center justify-between px-6">
+    <div class="flex items-center space-x-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+          <i data-lucide="shield-alert" class="w-5 h-5 text-white"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <span class="font-extrabold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-teal-300 to-purple-400 text-lg">SPECTRA</span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-cyan-950/80 text-cyan-300 border border-cyan-800/60 uppercase">CycloneDX 1.6</span>
+          </div>
+          <p class="text-[10px] font-mono text-slate-400 tracking-tight">Enterprise Cryptographic Inventory & Quantum Telemetry</p>
+        </div>
+      </div>
+
+      <div class="hidden lg:flex items-center space-x-2 pl-6 border-l border-slate-800">
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span class="text-xs font-mono text-slate-300" id="headerStatusText">Bound to: cbom.json</span>
+        <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 font-mono text-slate-400" id="headerComponentCount">Loading...</span>
+      </div>
+    </div>
+
+    <!-- Top Right Actions -->
+    <div class="flex items-center space-x-3">
+      <button id="btnReloadCbom" class="px-3 py-1.5 rounded-lg bg-cyber-750 hover:bg-cyber-700 text-xs font-mono text-cyan-300 border border-cyan-800/50 flex items-center space-x-2 transition shadow-sm">
+        <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+        <span>Reload CBOM</span>
+      </button>
+
+      <label for="fileUploadInput" class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-xs font-semibold text-white flex items-center space-x-2 cursor-pointer transition shadow-md shadow-cyan-600/20">
+        <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+        <span>Upload JSON</span>
+      </label>
+      <input type="file" id="fileUploadInput" accept=".json" class="hidden">
+
+      <button id="btnExportJson" class="px-3 py-1.5 rounded-lg bg-cyber-750 hover:bg-cyber-700 text-xs font-mono text-slate-300 border border-slate-700 flex items-center space-x-2 transition">
+        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+        <span>Export</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Body Layout: Sidebar + Content Area -->
+  <div class="flex flex-1 overflow-hidden">
+    
+    <!-- Left Navigation Sidebar -->
+    <aside class="w-64 bg-cyber-850 border-r border-slate-800 flex flex-col justify-between py-4 select-none shrink-0">
+      <div class="space-y-6">
+        <div class="px-4">
+          <p class="text-[10px] font-mono tracking-widest uppercase text-slate-500 font-semibold mb-2">Reconnaissance Views</p>
+          <nav class="space-y-1">
+            <button data-section="overview" class="nav-tab active w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition">
+              <i data-lucide="activity" class="w-4 h-4"></i>
+              <span>Executive Overview</span>
+            </button>
+            <button data-section="inventory" class="nav-tab w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition">
+              <i data-lucide="cpu" class="w-4 h-4"></i>
+              <span>Crypto Inventory</span>
+              <span class="ml-auto text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800" id="badgeTotalComps">0</span>
+            </button>
+            <button data-section="mosca" class="nav-tab w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition">
+              <i data-lucide="hourglass" class="w-4 h-4"></i>
+              <span>Mosca Quantum Risk</span>
+              <span class="ml-auto text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800" id="badgeMoscaBreaches">0</span>
+            </button>
+            <button data-section="vulnerabilities" class="nav-tab w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition">
+              <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+              <span>Policy Violations</span>
+              <span class="ml-auto text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-red-950 text-red-300 border border-red-800" id="badgeTotalVulns">0</span>
+            </button>
+            <button data-section="topology" class="nav-tab w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition">
+              <i data-lucide="network" class="w-4 h-4"></i>
+              <span>Cross-Domain Topology</span>
+            </button>
+            <button data-section="raw" class="nav-tab w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition">
+              <i data-lucide="code-2" class="w-4 h-4"></i>
+              <span>CycloneDX JSON</span>
+            </button>
+          </nav>
+        </div>
+
+        <div class="px-4">
+          <p class="text-[10px] font-mono tracking-widest uppercase text-slate-500 font-semibold mb-2">Scope Filters</p>
+          <div class="space-y-1.5 text-xs font-mono" id="sidebarDomainList">
+            <!-- Dynamically populated domains -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Sidebar Footer -->
+      <div class="px-4 pt-4 border-t border-slate-800 text-[11px] font-mono text-slate-400 space-y-1">
+        <div class="flex justify-between items-center">
+          <span class="text-slate-500">Spec Version:</span>
+          <span class="text-cyan-400 font-semibold">CycloneDX 1.6</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-slate-500">PQC Standard:</span>
+          <span class="text-purple-400 font-semibold">FIPS 203/204/205</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-slate-500">Host Engine:</span>
+          <span class="text-emerald-400 font-semibold">Multi-Domain AST</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Dynamic Content Area -->
+    <main class="flex-1 overflow-y-auto p-6 space-y-6 relative" id="contentArea">
+
+      <!-- ========================================================================= -->
+      <!-- SECTION 1: EXECUTIVE OVERVIEW -->
+      <!-- ========================================================================= -->
+      <section id="section-overview" class="section-pane active space-y-6">
+        
+        <!-- Welcome Hero Banner -->
+        <div class="p-6 rounded-2xl bg-gradient-to-r from-cyber-850 via-cyber-800 to-cyan-950/40 border border-cyan-900/40 relative overflow-hidden">
+          <div class="absolute right-0 top-0 w-96 h-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-cyan-500/10 via-purple-500/5 to-transparent pointer-events-none"></div>
+          <div class="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div class="inline-flex items-center space-x-2 px-2.5 py-1 rounded-full bg-cyan-950/80 border border-cyan-800/60 text-cyan-300 text-xs font-mono mb-2">
+                <i data-lucide="zap" class="w-3 h-3 text-cyan-400"></i>
+                <span>Spectra Cryptographic Reconnaissance & Analysis Engine</span>
+              </div>
+              <h1 class="text-2xl md:text-3xl font-extrabold text-white tracking-tight">Enterprise Cryptographic Telemetry Dashboard</h1>
+              <p class="text-slate-400 text-xs md:text-sm mt-1 max-w-2xl">
+                Synthesized CycloneDX 1.6 Cryptographic Bill of Materials (CBOM) covering multi-language source ASTs, compiled binaries, X.509 certs, IaC KMS configurations, and Michele Mosca's post-quantum inequality modeling.
+              </p>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="bg-cyber-900/80 border border-slate-700 p-3 rounded-xl text-center min-w-[110px]">
+                <div class="text-2xl font-black text-cyan-400" id="heroPqcScore">0%</div>
+                <div class="text-[10px] font-mono text-slate-400 uppercase">Quantum-Safe</div>
+              </div>
+              <div class="bg-cyber-900/80 border border-slate-700 p-3 rounded-xl text-center min-w-[110px]">
+                <div class="text-2xl font-black text-red-400" id="heroShorScore">0%</div>
+                <div class="text-[10px] font-mono text-slate-400 uppercase">Shor Vulnerable</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Metric KPI Cards Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <!-- Card 1 -->
+          <div class="p-4 rounded-xl bg-cyber-850 border border-slate-800 flex items-center space-x-4">
+            <div class="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center shrink-0">
+              <i data-lucide="cpu" class="w-6 h-6 text-cyan-400"></i>
+            </div>
+            <div>
+              <div class="text-xs font-mono text-slate-400">Total Assets</div>
+              <div class="text-2xl font-black text-white" id="kpiTotalAssets">0</div>
+              <div class="text-[10px] text-cyan-400/80 font-mono">100% Verified Recall</div>
+            </div>
+          </div>
+
+          <!-- Card 2 -->
+          <div class="p-4 rounded-xl bg-cyber-850 border border-slate-800 flex items-center space-x-4">
+            <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shrink-0">
+              <i data-lucide="shield-check" class="w-6 h-6 text-emerald-400"></i>
+            </div>
+            <div>
+              <div class="text-xs font-mono text-slate-400">PQC / Quantum-Safe</div>
+              <div class="text-2xl font-black text-emerald-400" id="kpiQuantumSafe">0</div>
+              <div class="text-[10px] text-emerald-400/80 font-mono">FIPS 203/204/205</div>
+            </div>
+          </div>
+
+          <!-- Card 3 -->
+          <div class="p-4 rounded-xl bg-cyber-850 border border-slate-800 flex items-center space-x-4">
+            <div class="w-12 h-12 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center shrink-0">
+              <i data-lucide="unlock" class="w-6 h-6 text-red-400"></i>
+            </div>
+            <div>
+              <div class="text-xs font-mono text-slate-400">Shor Vulnerable</div>
+              <div class="text-2xl font-black text-red-400" id="kpiShorVulnerable">0</div>
+              <div class="text-[10px] text-red-400/80 font-mono">Classical Asymmetric</div>
+            </div>
+          </div>
+
+          <!-- Card 4 -->
+          <div class="p-4 rounded-xl bg-cyber-850 border border-slate-800 flex items-center space-x-4">
+            <div class="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shrink-0">
+              <i data-lucide="hourglass" class="w-6 h-6 text-amber-400"></i>
+            </div>
+            <div>
+              <div class="text-xs font-mono text-slate-400">Mosca Breached</div>
+              <div class="text-2xl font-black text-amber-400" id="kpiMoscaBreached">0</div>
+              <div class="text-[10px] text-amber-400/80 font-mono">X + Y &gt; Z Timeline</div>
+            </div>
+          </div>
+
+          <!-- Card 5 -->
+          <div class="p-4 rounded-xl bg-cyber-850 border border-slate-800 flex items-center space-x-4">
+            <div class="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center shrink-0">
+              <i data-lucide="alert-octagon" class="w-6 h-6 text-purple-400"></i>
+            </div>
+            <div>
+              <div class="text-xs font-mono text-slate-400">Policy Findings</div>
+              <div class="text-2xl font-black text-purple-400" id="kpiPolicyVulns">0</div>
+              <div class="text-[10px] text-purple-400/80 font-mono">Weak Keys & Ciphers</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Charts Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Chart 1: Cryptographic Primitives -->
+          <div class="p-5 rounded-xl bg-cyber-850 border border-slate-800 flex flex-col justify-between">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-sm font-semibold text-white flex items-center space-x-2">
+                <i data-lucide="pie-chart" class="w-4 h-4 text-cyan-400"></i>
+                <span>Cryptographic Primitives</span>
+              </h3>
+              <span class="text-[10px] font-mono text-slate-400">Distribution</span>
+            </div>
+            <div class="relative h-60 flex items-center justify-center">
+              <canvas id="chartPrimitives"></canvas>
+            </div>
+          </div>
+
+          <!-- Chart 2: NIST Compliance Classification -->
+          <div class="p-5 rounded-xl bg-cyber-850 border border-slate-800 flex flex-col justify-between">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-sm font-semibold text-white flex items-center space-x-2">
+                <i data-lucide="award" class="w-4 h-4 text-purple-400"></i>
+                <span>NIST Standards Compliance</span>
+              </h3>
+              <span class="text-[10px] font-mono text-slate-400">SP 800-131A / FIPS 203</span>
+            </div>
+            <div class="relative h-60 flex items-center justify-center">
+              <canvas id="chartNistStatus"></canvas>
+            </div>
+          </div>
+
+          <!-- Chart 3: Reconnaissance Domain Footprint -->
+          <div class="p-5 rounded-xl bg-cyber-850 border border-slate-800 flex flex-col justify-between">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-sm font-semibold text-white flex items-center space-x-2">
+                <i data-lucide="layers" class="w-4 h-4 text-emerald-400"></i>
+                <span>Domain Reconnaissance</span>
+              </h3>
+              <span class="text-[10px] font-mono text-slate-400">Source to Network</span>
+            </div>
+            <div class="relative h-60 flex items-center justify-center">
+              <canvas id="chartDomains"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Summary Table of Ground Truth Match / Primary Core Cryptography -->
+        <div class="p-5 rounded-xl bg-cyber-850 border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-white flex items-center space-x-2">
+              <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>
+              <span>High-Priority Cryptographic Assets (Core Services & Infrastructure)</span>
+            </h3>
+            <button onclick="switchTab('inventory')" class="text-xs font-mono text-cyan-400 hover:underline">View All &rarr;</button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs font-mono text-slate-300">
+              <thead class="bg-cyber-800 text-slate-400 uppercase text-[10px] border-b border-slate-700">
+                <tr>
+                  <th class="py-2.5 px-3">Algorithm</th>
+                  <th class="py-2.5 px-3">Primitive</th>
+                  <th class="py-2.5 px-3">Domain</th>
+                  <th class="py-2.5 px-3">Location / Resource</th>
+                  <th class="py-2.5 px-3">NIST Status</th>
+                  <th class="py-2.5 px-3">Quantum Status</th>
+                </tr>
+              </thead>
+              <tbody id="quickAssetsTableBody" class="divide-y divide-slate-800">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- SECTION 2: CRYPTOGRAPHIC INVENTORY -->
+      <!-- ========================================================================= -->
+      <section id="section-inventory" class="section-pane space-y-4">
+        
+        <!-- Inventory Header & Search / Filters Toolbar -->
+        <div class="p-4 rounded-xl bg-cyber-850 border border-slate-800 space-y-3">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <h2 class="text-lg font-bold text-white flex items-center space-x-2">
+                <i data-lucide="list-filter" class="w-5 h-5 text-cyan-400"></i>
+                <span>Cryptographic Bill of Materials (CBOM) Inventory</span>
+              </h2>
+              <p class="text-xs text-slate-400">Deep inspection of all identified algorithms, keys, certificates, binaries, and network sessions.</p>
+            </div>
+            <div class="flex items-center space-x-2">
+              <span class="text-xs font-mono text-slate-400" id="filteredCountLabel">Showing 0 of 0</span>
+            </div>
+          </div>
+
+          <!-- Filter Controls -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-slate-800/80">
+            <!-- Search bar -->
+            <div class="relative">
+              <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
+              <input type="text" id="inventorySearchInput" placeholder="Search algorithms, files, CN, params..." class="w-full pl-9 pr-3 py-1.5 rounded-lg bg-cyber-800 border border-slate-700 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono">
+            </div>
+
+            <!-- Domain filter -->
+            <select id="inventoryDomainFilter" class="px-3 py-1.5 rounded-lg bg-cyber-800 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+              <option value="ALL">All Domains (Source, Certs, IaC, Binaries...)</option>
+              <option value="source_code">Source Code Services</option>
+              <option value="artifacts">Artifacts (Certs, Keys, Binaries)</option>
+              <option value="infrastructure">Infrastructure (Terraform, CloudFormation)</option>
+              <option value="network">Network Protocols (Nginx, SSH)</option>
+            </select>
+
+            <!-- Quantum Safe filter -->
+            <select id="inventoryQuantumFilter" class="px-3 py-1.5 rounded-lg bg-cyber-800 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+              <option value="ALL">All Quantum Statuses</option>
+              <option value="quantum_safe">Quantum-Safe (FIPS 203/204/205 / AES-256)</option>
+              <option value="shor_vulnerable">Shor Vulnerable (Classical Asymmetric)</option>
+            </select>
+
+            <!-- NIST Status filter -->
+            <select id="inventoryNistFilter" class="px-3 py-1.5 rounded-lg bg-cyber-800 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-mono">
+              <option value="ALL">All NIST Statuses</option>
+              <option value="fips_pqc_standard">FIPS PQC Standard</option>
+              <option value="approved">Approved</option>
+              <option value="deprecated_pqc">Deprecated PQC Transition</option>
+              <option value="deprecated_classical">Deprecated Classical</option>
+              <option value="broken_classical">Broken Classical</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Inventory Data Table -->
+        <div class="rounded-xl bg-cyber-850 border border-slate-800 overflow-hidden shadow-lg">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs font-mono text-slate-300">
+              <thead class="bg-cyber-800 text-slate-400 uppercase text-[10px] border-b border-slate-700">
+                <tr>
+                  <th class="py-3 px-3 cursor-pointer" onclick="sortInventory('name')">Asset Name ↕</th>
+                  <th class="py-3 px-3 cursor-pointer" onclick="sortInventory('primitive')">Primitive ↕</th>
+                  <th class="py-3 px-3">Parameters</th>
+                  <th class="py-3 px-3 cursor-pointer" onclick="sortInventory('domain')">Domain ↕</th>
+                  <th class="py-3 px-3">Location / Target</th>
+                  <th class="py-3 px-3 cursor-pointer" onclick="sortInventory('nist')">NIST Status ↕</th>
+                  <th class="py-3 px-3 cursor-pointer" onclick="sortInventory('quantum')">Quantum Risk ↕</th>
+                  <th class="py-3 px-3 text-right">Details</th>
+                </tr>
+              </thead>
+              <tbody id="inventoryTableBody" class="divide-y divide-slate-800">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Pagination Controls -->
+          <div class="p-3 bg-cyber-800/60 border-t border-slate-800 flex items-center justify-between text-xs font-mono">
+            <div class="flex items-center space-x-2">
+              <span class="text-slate-400">Rows per page:</span>
+              <select id="pageSizeSelect" class="bg-cyber-750 border border-slate-700 rounded px-2 py-1 text-slate-200">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+                <option value="500">500</option>
+              </select>
+            </div>
+            <div class="flex items-center space-x-3">
+              <span id="pageInfoLabel" class="text-slate-400">Page 1 of 1</span>
+              <div class="flex space-x-1">
+                <button id="btnPrevPage" class="px-2.5 py-1 rounded bg-cyber-750 hover:bg-cyber-700 text-slate-300 border border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed">&larr;</button>
+                <button id="btnNextPage" class="px-2.5 py-1 rounded bg-cyber-750 hover:bg-cyber-700 text-slate-300 border border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed">&rarr;</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- SECTION 3: MOSCA QUANTUM RISK SIMULATOR -->
+      <!-- ========================================================================= -->
+      <section id="section-mosca" class="section-pane space-y-6">
+        
+        <!-- Mosca Formula Card -->
+        <div class="p-6 rounded-2xl bg-gradient-to-r from-amber-950/40 via-cyber-850 to-purple-950/40 border border-amber-800/40 space-y-4">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <span class="px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800/80 text-xs font-mono font-semibold">
+                Michele Mosca's Quantum Risk Inequality
+              </span>
+              <h2 class="text-2xl font-black text-white mt-2">X + Y &gt; Z Timeline Vulnerability Simulator</h2>
+              <p class="text-xs md:text-sm text-slate-300 max-w-2xl mt-1">
+                If the required confidentiality shelf-life (<span class="text-amber-400 font-bold font-mono">X</span>) plus the migration lead time (<span class="text-cyan-400 font-bold font-mono">Y</span>) exceeds the timeline to a cryptanalytically relevant quantum computer (<span class="text-purple-400 font-bold font-mono">Z</span>), communications are compromised today via Store-Now-Decrypt-Later (SNDL).
+              </p>
+            </div>
+            <div class="bg-cyber-900/90 border border-amber-700/60 p-4 rounded-xl text-center min-w-[200px]">
+              <div class="text-xs font-mono text-slate-400">Inequality Status</div>
+              <div class="text-xl font-extrabold text-red-400 mt-1" id="moscaGlobalVerdict">BREACHED (X + Y &gt; Z)</div>
+              <div class="text-[11px] font-mono text-amber-300 mt-0.5" id="moscaGlobalGap">Deficit: -2.4 Years</div>
+            </div>
+          </div>
+
+          <!-- Interactive Sliders -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-slate-800">
+            <!-- Shelf Life X -->
+            <div class="p-4 rounded-xl bg-cyber-800 border border-slate-700 space-y-2">
+              <div class="flex justify-between items-center text-xs font-mono">
+                <span class="text-amber-300 font-bold">X (Shelf-Life)</span>
+                <span class="text-white font-bold" id="sliderXVal">7.0 Years</span>
+              </div>
+              <input type="range" id="sliderX" min="1" max="25" step="0.5" value="7.0" class="w-full accent-amber-400 cursor-pointer">
+              <p class="text-[10px] text-slate-400">Required data secrecy lifespan for financial/regulatory compliance.</p>
+            </div>
+
+            <!-- Migration Time Y -->
+            <div class="p-4 rounded-xl bg-cyber-800 border border-slate-700 space-y-2">
+              <div class="flex justify-between items-center text-xs font-mono">
+                <span class="text-cyan-300 font-bold">Y (Migration Lead Time)</span>
+                <span class="text-white font-bold" id="sliderYVal">5.0 Years</span>
+              </div>
+              <input type="range" id="sliderY" min="1" max="15" step="0.5" value="5.0" class="w-full accent-cyan-400 cursor-pointer">
+              <p class="text-[10px] text-slate-400">Engineering duration to refactor microservices, PKI, and key management.</p>
+            </div>
+
+            <!-- Quantum Threat Z -->
+            <div class="p-4 rounded-xl bg-cyber-800 border border-slate-700 space-y-2">
+              <div class="flex justify-between items-center text-xs font-mono">
+                <span class="text-purple-300 font-bold">Z (Quantum Arrival Year)</span>
+                <span class="text-white font-bold" id="sliderZVal">2033 (8.0 Yrs)</span>
+              </div>
+              <input type="range" id="sliderZ" min="2027" max="2045" step="1" value="2033" class="w-full accent-purple-400 cursor-pointer">
+              <p class="text-[10px] text-slate-400">Estimated arrival of CRQC capable of running Shor's algorithm.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mosca Breach Table -->
+        <div class="p-5 rounded-xl bg-cyber-850 border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-white flex items-center space-x-2">
+              <i data-lucide="shield-alert" class="w-4 h-4 text-amber-400"></i>
+              <span>High-Risk Assets Subject to Immediate Mosca Quantum Breach</span>
+            </h3>
+            <span class="text-xs font-mono text-slate-400" id="moscaBreachedCountLabel">0 Breached</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs font-mono text-slate-300">
+              <thead class="bg-cyber-800 text-slate-400 uppercase text-[10px] border-b border-slate-700">
+                <tr>
+                  <th class="py-2.5 px-3">Asset Name</th>
+                  <th class="py-2.5 px-3">Location</th>
+                  <th class="py-2.5 px-3">Shelf Life (X)</th>
+                  <th class="py-2.5 px-3">Migration (Y)</th>
+                  <th class="py-2.5 px-3">Threat (Z)</th>
+                  <th class="py-2.5 px-3">SNDL Exposure</th>
+                  <th class="py-2.5 px-3">Recommended PQC Replacement</th>
+                </tr>
+              </thead>
+              <tbody id="moscaTableBody" class="divide-y divide-slate-800">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- SECTION 4: POLICY & VULNERABILITIES -->
+      <!-- ========================================================================= -->
+      <section id="section-vulnerabilities" class="section-pane space-y-4">
+        
+        <div class="p-4 rounded-xl bg-cyber-850 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center space-x-2">
+              <i data-lucide="alert-octagon" class="w-5 h-5 text-red-400"></i>
+              <span>Cryptographic Compliance Violations & Alerts</span>
+            </h2>
+            <p class="text-xs text-slate-400">Security findings detected across key sizes, block cipher modes, and legacy digests.</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="px-2 py-1 rounded bg-red-950 border border-red-800 text-xs font-mono text-red-300" id="vulnCriticalBadge">0 Critical</span>
+            <span class="px-2 py-1 rounded bg-amber-950 border border-amber-800 text-xs font-mono text-amber-300" id="vulnHighBadge">0 High</span>
+            <span class="px-2 py-1 rounded bg-blue-950 border border-blue-800 text-xs font-mono text-blue-300" id="vulnMediumBadge">0 Medium</span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="vulnerabilitiesGrid">
+          <!-- Dynamically populated cards -->
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- SECTION 5: CROSS-DOMAIN TOPOLOGY -->
+      <!-- ========================================================================= -->
+      <section id="section-topology" class="section-pane space-y-6">
+        
+        <div class="p-5 rounded-xl bg-cyber-850 border border-slate-800 space-y-4">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center space-x-2">
+              <i data-lucide="network" class="w-5 h-5 text-cyan-400"></i>
+              <span>Cross-Domain Cryptographic Blast Radius Map</span>
+            </h2>
+            <p class="text-xs text-slate-400">Traces how cryptographic keys and primitives correlate across microservices, binaries, and infrastructure.</p>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 pt-2">
+            <!-- Domain Col 1: Source Services -->
+            <div class="p-4 rounded-xl bg-cyber-800 border border-slate-700 space-y-3">
+              <h4 class="text-xs font-mono font-bold text-cyan-400 uppercase flex items-center space-x-2">
+                <i data-lucide="code" class="w-4 h-4"></i>
+                <span>Source Microservices</span>
+              </h4>
+              <div class="space-y-2 text-xs font-mono" id="topoSourceCol"></div>
+            </div>
+
+            <!-- Domain Col 2: Binaries & Libraries -->
+            <div class="p-4 rounded-xl bg-cyber-800 border border-slate-700 space-y-3">
+              <h4 class="text-xs font-mono font-bold text-purple-400 uppercase flex items-center space-x-2">
+                <i data-lucide="binary" class="w-4 h-4"></i>
+                <span>Compiled Binaries</span>
+              </h4>
+              <div class="space-y-2 text-xs font-mono" id="topoBinaryCol"></div>
+            </div>
+
+            <!-- Domain Col 3: Certificates & Keys -->
+            <div class="p-4 rounded-xl bg-cyber-800 border border-slate-700 space-y-3">
+              <h4 class="text-xs font-mono font-bold text-emerald-400 uppercase flex items-center space-x-2">
+                <i data-lucide="key" class="w-4 h-4"></i>
+                <span>PKI & Key Stores</span>
+              </h4>
+              <div class="space-y-2 text-xs font-mono" id="topoKeyCol"></div>
+            </div>
+
+            <!-- Domain Col 4: Infrastructure & Network -->
+            <div class="p-4 rounded-xl bg-cyber-800 border border-slate-700 space-y-3">
+              <h4 class="text-xs font-mono font-bold text-amber-400 uppercase flex items-center space-x-2">
+                <i data-lucide="cloud" class="w-4 h-4"></i>
+                <span>IaC & Network Proxies</span>
+              </h4>
+              <div class="space-y-2 text-xs font-mono" id="topoInfraCol"></div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- SECTION 6: RAW CYCLONEDX JSON -->
+      <!-- ========================================================================= -->
+      <section id="section-raw" class="section-pane space-y-4">
+        
+        <div class="p-4 rounded-xl bg-cyber-850 border border-slate-800 flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center space-x-2">
+              <i data-lucide="code-2" class="w-5 h-5 text-cyan-400"></i>
+              <span>CycloneDX 1.6 CBOM Payload Inspector</span>
+            </h2>
+            <p class="text-xs text-slate-400">Full structured JSON export conforming to CycloneDX 1.6 Cryptographic Extensions.</p>
+          </div>
+          <button id="btnCopyJson" class="px-3 py-1.5 rounded-lg bg-cyber-750 hover:bg-cyber-700 text-xs font-mono text-cyan-300 border border-cyan-800 flex items-center space-x-2">
+            <i data-lucide="copy" class="w-4 h-4"></i>
+            <span id="copyJsonBtnText">Copy to Clipboard</span>
+          </button>
+        </div>
+
+        <div class="rounded-xl bg-cyber-900 border border-slate-800 p-4 overflow-auto max-h-[700px]">
+          <pre><code id="rawJsonCodeBlock" class="text-xs font-mono text-cyan-300/90 whitespace-pre">Loading JSON...</code></pre>
+        </div>
+
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Detail Drawer Modal (Slide-in) -->
+  <div id="detailDrawerBackdrop" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden transition-opacity"></div>
+  <div id="detailDrawer" class="fixed top-0 right-0 h-full w-full max-w-xl bg-cyber-850 border-l border-slate-800 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 flex flex-col">
+    <div class="p-5 border-b border-slate-800 flex items-center justify-between bg-cyber-800">
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 rounded bg-cyan-950 border border-cyan-700 flex items-center justify-center">
+          <i data-lucide="cpu" class="w-4 h-4 text-cyan-400"></i>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold text-white" id="drawerTitle">Asset Details</h3>
+          <span class="text-[10px] font-mono text-cyan-400" id="drawerSubtitle">BOM-REF</span>
+        </div>
+      </div>
+      <button id="btnCloseDrawer" class="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+
+    <div class="flex-1 overflow-y-auto p-5 space-y-6 text-xs font-mono" id="drawerContent">
+      <!-- Dynamically filled with full component telemetry -->
+    </div>
+  </div>
+
+  <!-- Main JavaScript Application Bundle -->
+  <script src="app.js"></script>
+</body>
+</html>
