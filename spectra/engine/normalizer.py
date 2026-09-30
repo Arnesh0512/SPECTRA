@@ -260,12 +260,12 @@ class AssetNormalizer:
         quantum_safe = finding.get("quantum_safe", False)
         operation = finding.get("operation")
 
-        # Extract call graph and LOC metrics from finding metadata if present
+        # Extract call graph and LOC metrics from finding top-level attributes or metadata
         metadata = finding.get("raw_metadata", {}).copy()
-        direct_calls = metadata.get("direct_calls", 0)
-        transitive_calls = metadata.get("transitive_calls", 0)
-        call_depth = metadata.get("call_depth", 0)
-        loc = metadata.get("loc", 10)
+        direct_calls = finding.get("direct_calls", metadata.get("direct_calls", 0))
+        transitive_calls = finding.get("transitive_calls", metadata.get("transitive_calls", 0))
+        call_depth = finding.get("call_depth", metadata.get("call_depth", 0))
+        loc = finding.get("loc", metadata.get("loc", 10))
         is_upstream = metadata.get("finding_type") == "crypto_capable_dependency"
 
         if primitive in ["certificate", "x509"]:

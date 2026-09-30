@@ -132,14 +132,22 @@ CYBER_BANNER = r"""
 def _render_hero_banner(version: str = "1.0.0") -> None:
     """Renders the state-of-the-art quantum/cyber brand banner with system telemetry."""
     header_text = Text(CYBER_BANNER, style="bold cyan")
-    sub_title = Text("Enterprise Multi-Domain Cryptographic Inventory & CBOM Synthesis Engine", style="italic bright_white")
+    full_form = Text.from_markup(
+        "[bold bright_cyan]S[/bold bright_cyan][white]ystem for [/white]"
+        "[bold bright_cyan]P[/bold bright_cyan][white]ost-quantum [/white]"
+        "[bold bright_cyan]E[/bold bright_cyan][white]ncryption, [/white]"
+        "[bold bright_cyan]C[/bold bright_cyan][white]ryptography with [/white]"
+        "[bold bright_cyan]TR[/bold bright_cyan][white]acing & [/white]"
+        "[bold bright_cyan]A[/bold bright_cyan][white]nalysis[/white]"
+    )
+    sub_title = Text("Enterprise Multi-Domain Cryptographic Inventory & CBOM Synthesis Engine", style="italic dim white")
     badges = Text.from_markup(
         "[bold cyan]⚡ CYCLONEDX 1.6[/bold cyan]  │  "
         "[bold magenta]⚛ NIST PQC (FIPS 203/204/205)[/bold magenta]  │  "
         "[bold yellow]⌛ MOSCA QUANTUM RISK[/bold yellow]  │  "
         "[bold green]🛡️  POST-QUANTUM ASSURANCE[/bold green]"
     )
-    content = Align.center(Text.assemble(header_text, "\n", sub_title, "\n\n", badges))
+    content = Align.center(Text.assemble(header_text, "\n", full_form, "\n\n", sub_title, "\n\n", badges))
     panel = Panel(
         content,
         box=box.ROUNDED,
