@@ -8,7 +8,7 @@ incorporating cryptoProperties, cross-domain typed relationship edges, and Mosca
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 import uuid
 
 from .correlator import CorrelatedAsset
@@ -121,14 +121,19 @@ class CBOMBuilder:
     def save_cbom(
         self,
         cbom_dict: Dict[str, Any],
-        output_file: Path,
+        output_file: Union[Path, str],
         indent: int = 2,
     ) -> Path:
-        """Writes CBOM JSON to disk."""
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_file, "w", encoding="utf-8") as f:
+        """Writes CBOM JSON to disk. Safely handles directory targets by appending cbom.json."""
+        out = Path(output_file).expanduser().resolve()
+        if out.is_dir():
+            out = out / "cbom.json"
+        elif out.suffix == "":
+            out = out.with_suffix(".json")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with open(out, "w", encoding="utf-8") as f:
             json.dump(cbom_dict, f, indent=indent)
-        return output_file
+        return out
 
     def _build_crypto_component(
         self,
