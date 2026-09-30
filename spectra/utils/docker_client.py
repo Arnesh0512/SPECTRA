@@ -141,14 +141,9 @@ class DockerContainerClient:
         info = self.get_container_info(container_id_or_name)
         pid = info.get("State", {}).get("Pid", 0)
 
-        # Dynamically default to the container's home directory
+        # Dynamically default to the container's configured home/working directory
         if not container_path:
-            env_vars = dict(e.split("=", 1) for e in info.get("Config", {}).get("Env", []) if "=" in e)
-            c_user = info.get("Config", {}).get("User", "")
-            c_home = env_vars.get("HOME")
-            if not c_home:
-                c_home = f"/home/{c_user}" if (c_user and c_user != "root") else "/root"
-            container_path = c_home
+            container_path = info.get("Config", {}).get("WorkingDir") or "/"
 
         # 1. Fast-path: Check if direct host proc filesystem is mounted and accessible
         if pid > 0:
