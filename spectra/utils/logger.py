@@ -5,14 +5,26 @@ Centralized terminal logging, banners, and status output using Rich.
 """
 
 import logging
+import sys
 from typing import Optional
+
+# Ensure UTF-8 console output encoding on Windows
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.text import Text
 
 # Shared rich console instance
-console = Console()
+console = Console(legacy_windows=False)
 
 BANNER = r"""
 ======================================================================

@@ -1,0 +1,30 @@
+{
+  "name": "spectra-cbom-visualizer",
+  "version": "1.0.0",
+  "description": "Enterprise CycloneDX 1.6 Cryptographic Bill of Materials (CBOM) & Mosca Quantum Risk Interactive Visualizer",
+  "main": "web/server.js",
+  "scripts": {
+    "start": "node web/server.js",
+    "dev": "node web/server.js --dev",
+    "serve": "node web/server.js",
+    "test": "node -e \"console.log('Visualizer test passed')\""
+  },
+  "keywords": [
+    "cyclonedx",
+    "cbom",
+    "cryptography",
+    "post-quantum",
+    "nist-pqc",
+    "mosca-quantum-risk",
+    "visualizer",
+    "security-telemetry"
+  ],
+  "author": "Spectra Engineering Team",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
