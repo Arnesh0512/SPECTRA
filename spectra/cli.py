@@ -364,10 +364,8 @@ def scan(
     default_out = str(Path.home() / "cbom.json")
     if output:
         output_path = Path(output).expanduser().resolve()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
     elif yes:
         output_path = Path(default_out).resolve()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
     else:
         console.print("  [bold cyan]1.2 Destination CBOM Artifact[/bold cyan]")
         output_str = Prompt.ask(
@@ -376,7 +374,12 @@ def scan(
             show_default=False,
         )
         output_path = Path(output_str).expanduser().resolve()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if output_path.is_dir():
+        output_path = output_path / "cbom.json"
+    elif output_path.suffix == "":
+        output_path = output_path.with_suffix(".json")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     console.print(f"      [bold green]✔ Output target designated:[/bold green] [bold bright_white]{output_path}[/bold bright_white]")
 
     # --- STEP 2 & 3: Exclusions and Scanner Matrix ---
@@ -565,6 +568,7 @@ def scan(
             mosca_evaluations=mosca_evals,
         )
         written_path = engine.cbom_builder.save_cbom(cbom, output_path)
+        output_path = written_path
         progress.update(stage_task, completed=100)
         console.print(f"  [bold green]✔[/bold green] CycloneDX 1.6 CBOM exported to: [bold bright_white]{written_path}[/bold bright_white]")
 
@@ -735,6 +739,8 @@ def ui(
     _render_hero_banner()
 
     resolved_cbom = cbom
+    if resolved_cbom.is_dir():
+        resolved_cbom = resolved_cbom / "cbom.json"
     if not resolved_cbom.exists():
         candidates = [
             Path("cbom.json"),

@@ -1,7 +1,8 @@
 /**
- * Spectra Enterprise CBOM Visualizer & Quantum Risk Client Application
- * ====================================================================
- * Interactive, high-performance CycloneDX 1.6 cryptographic telemetry UI.
+ * SPECTRA ENTERPRISE CBOM VISUALIZER & POST-QUANTUM ASSURANCE
+ * ==========================================================
+ * Executive, high-performance CycloneDX 1.6 Cryptographic Telemetry UI.
+ * Zero neon clutter • Light & Dark mode engine • Professional palette (No Blue/Purple).
  */
 
 // Application State
@@ -30,6 +31,7 @@ const elements = {
   headerStatusText: document.getElementById('headerStatusText'),
   headerComponentCount: document.getElementById('headerComponentCount'),
   btnReloadCbom: document.getElementById('btnReloadCbom'),
+  btnThemeToggle: document.getElementById('btnThemeToggle'),
   fileUploadInput: document.getElementById('fileUploadInput'),
   btnExportJson: document.getElementById('btnExportJson'),
   badgeTotalComps: document.getElementById('badgeTotalComps'),
@@ -98,7 +100,41 @@ const elements = {
 };
 
 // =========================================================================
-// 1. DATA INGESTION & PARSING
+// 1. THEME ENGINE (LIGHT & DARK MODE TOGGLE)
+// =========================================================================
+
+function isDarkMode() {
+  return document.documentElement.classList.contains('dark');
+}
+
+function initTheme() {
+  const savedTheme = localStorage.getItem('spectra-theme');
+  if (savedTheme === 'light') {
+    document.documentElement.classList.remove('dark');
+    document.documentElement.setAttribute('data-theme', 'light');
+  } else {
+    document.documentElement.classList.add('dark');
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+}
+
+function toggleTheme() {
+  const currentlyDark = isDarkMode();
+  if (currentlyDark) {
+    document.documentElement.classList.remove('dark');
+    document.documentElement.setAttribute('data-theme', 'light');
+    localStorage.setItem('spectra-theme', 'light');
+  } else {
+    document.documentElement.classList.add('dark');
+    document.documentElement.setAttribute('data-theme', 'dark');
+    localStorage.setItem('spectra-theme', 'dark');
+  }
+  lucide.createIcons();
+  updateCharts();
+}
+
+// =========================================================================
+// 2. DATA INGESTION & PARSING
 // =========================================================================
 
 async function fetchCbom() {
@@ -112,8 +148,8 @@ async function fetchCbom() {
     processCbomData(data);
   } catch (err) {
     console.warn('[Spectra UI] Failed to load from /api/cbom:', err.message);
-    elements.headerStatusText.textContent = 'Upload or connect CBOM';
-    elements.rawJsonCodeBlock.textContent = `Error loading CBOM: ${err.message}\n\nPlease click 'Upload JSON' to load your cbom.json file.`;
+    elements.headerStatusText.textContent = 'Ready (Upload or Connect CBOM)';
+    elements.rawJsonCodeBlock.textContent = `// Could not auto-load active CBOM: ${err.message}\n// Click 'Upload JSON' in the header to view any CycloneDX 1.6 CBOM.`;
   }
 }
 
@@ -181,8 +217,8 @@ function processCbomData(cbom) {
   }
 
   // Update Header Telemetry
-  elements.headerStatusText.textContent = `Bound: ${state.components.length} Assets Loaded`;
-  elements.headerComponentCount.textContent = `${state.components.length} Components`;
+  elements.headerStatusText.textContent = `Connected: ${state.components.length} Assets Verified`;
+  elements.headerComponentCount.textContent = `${state.components.length} components`;
   elements.badgeTotalComps.textContent = state.components.length;
   elements.badgeTotalVulns.textContent = state.vulnerabilities.length;
 
@@ -193,7 +229,7 @@ function processCbomData(cbom) {
 }
 
 // =========================================================================
-// 2. VIEW CONTROLLER & TAB SWITCHING
+// 3. VIEW CONTROLLER & TAB SWITCHING
 // =========================================================================
 
 function switchTab(sectionId) {
@@ -214,10 +250,10 @@ function switchTab(sectionId) {
     }
   });
 
-  // Re-layout active section
   if (sectionId === 'overview') {
     updateCharts();
   }
+  lucide.createIcons();
 }
 
 function renderAllViews() {
@@ -233,7 +269,7 @@ function renderAllViews() {
 }
 
 // =========================================================================
-// 3. EXECUTIVE OVERVIEW RENDERING
+// 4. EXECUTIVE OVERVIEW RENDERING
 // =========================================================================
 
 function renderOverviewKPIs() {
@@ -258,16 +294,16 @@ function renderOverviewKPIs() {
   // Quick core assets table (first 10 core items)
   const coreAssets = state.components.filter(c => !c.isUpstream && c.domain !== 'runtime').slice(0, 10);
   elements.quickAssetsTableBody.innerHTML = coreAssets.map(c => `
-    <tr class="hover:bg-cyber-800/80 cursor-pointer" onclick="openDetailDrawer('${c.ref}')">
-      <td class="py-2 px-3 font-bold text-white flex items-center space-x-2">
-        <span class="inline-block w-2 h-2 rounded-full ${c.isQuantumSafe ? 'bg-emerald-400' : 'bg-red-400'}"></span>
-        <span>${escapeHtml(c.name)}</span>
+    <tr class="data-table-row cursor-pointer" onclick="openDetailDrawer('${c.ref}')">
+      <td class="py-2.5 px-3 font-semibold text-slate-900 dark:text-white flex items-center space-x-2">
+        <span class="inline-block w-2 h-2 rounded-full ${c.isQuantumSafe ? 'bg-emerald-500' : 'bg-rose-500'}"></span>
+        <span class="truncate max-w-[200px]">${escapeHtml(c.name)}</span>
       </td>
-      <td class="py-2 px-3 text-cyan-300">${escapeHtml(c.primitive)}</td>
-      <td class="py-2 px-3 text-slate-400 capitalize">${escapeHtml(c.domain.replace('_', ' '))}</td>
-      <td class="py-2 px-3 text-slate-400 truncate max-w-[200px]" title="${escapeHtml(c.location)}">${escapeHtml(truncatePath(c.location))}</td>
-      <td class="py-2 px-3">${renderNistBadge(c.nistStatus)}</td>
-      <td class="py-2 px-3">${renderQuantumBadge(c.isQuantumSafe, c.isShorVulnerable)}</td>
+      <td class="py-2.5 px-3 text-slate-600 dark:text-slate-300 font-mono">${escapeHtml(c.primitive)}</td>
+      <td class="py-2.5 px-3 text-slate-500 dark:text-slate-400 capitalize">${escapeHtml(c.domain.replace('_', ' '))}</td>
+      <td class="py-2.5 px-3 text-slate-500 dark:text-slate-400 truncate max-w-[200px]" title="${escapeHtml(c.location)}">${escapeHtml(truncatePath(c.location))}</td>
+      <td class="py-2.5 px-3">${renderNistBadge(c.nistStatus)}</td>
+      <td class="py-2.5 px-3">${renderQuantumBadge(c.isQuantumSafe, c.isShorVulnerable)}</td>
     </tr>
   `).join('');
 }
@@ -275,7 +311,24 @@ function renderOverviewKPIs() {
 function updateCharts() {
   if (!state.components.length) return;
 
-  // Chart 1: Primitives
+  const dark = isDarkMode();
+  const textColor = dark ? '#94a3b8' : '#64748b';
+  const gridColor = dark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)';
+
+  // Professional Color Palette (NO Blue, NO Purple)
+  // Emerald, Sage, Ochre, Amber, Coral, Charcoal, Slate
+  const primColors = [
+    '#059669', // Emerald
+    '#10b981', // Light Emerald
+    '#d97706', // Ochre / Amber
+    '#f59e0b', // Bright Amber
+    '#ea580c', // Coral / Orange
+    '#dc2626', // Crimson / Red
+    '#475569', // Slate
+    '#0f766e', // Deep Teal
+  ];
+
+  // Chart 1: Primitives Distribution
   const primCounts = {};
   for (const c of state.components) {
     const p = c.primitive || 'other';
@@ -292,20 +345,29 @@ function updateCharts() {
       labels: primLabels,
       datasets: [{
         data: primValues,
-        backgroundColor: ['#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#3b82f6', '#64748b'],
-        borderWidth: 0,
+        backgroundColor: primColors.slice(0, primLabels.length),
+        borderWidth: 2,
+        borderColor: dark ? '#121824' : '#ffffff',
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9, family: 'JetBrains Mono' }, color: '#94a3b8' } }
+        legend: {
+          position: 'bottom',
+          labels: {
+            boxWidth: 8,
+            font: { size: 10, family: 'JetBrains Mono' },
+            color: textColor,
+            padding: 10
+          }
+        }
       }
     }
   });
 
-  // Chart 2: NIST Status
+  // Chart 2: NIST Status Distribution
   const nistCounts = { 'fips_pqc_standard': 0, 'approved': 0, 'deprecated_pqc': 0, 'deprecated_classical': 0, 'broken_classical': 0 };
   for (const c of state.components) {
     const s = c.nistStatus || 'approved';
@@ -317,7 +379,7 @@ function updateCharts() {
   state.charts.nist = new Chart(ctxNist, {
     type: 'doughnut',
     data: {
-      labels: ['PQC Standard', 'Approved', 'Deprecated (PQC)', 'Deprecated (Class.)', 'Broken'],
+      labels: ['FIPS PQC', 'Approved Classical', 'Depr. PQC', 'Depr. Classical', 'Broken'],
       datasets: [{
         data: [
           nistCounts.fips_pqc_standard,
@@ -326,20 +388,35 @@ function updateCharts() {
           nistCounts.deprecated_classical,
           nistCounts.broken_classical
         ],
-        backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#f97316', '#ef4444'],
-        borderWidth: 0,
+        backgroundColor: [
+          '#059669', // PQC Safe (Emerald)
+          '#475569', // Approved (Slate)
+          '#d97706', // Deprecated PQC (Amber)
+          '#ea580c', // Deprecated Classical (Orange)
+          '#dc2626'  // Broken (Red)
+        ],
+        borderWidth: 2,
+        borderColor: dark ? '#121824' : '#ffffff',
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9, family: 'JetBrains Mono' }, color: '#94a3b8' } }
+        legend: {
+          position: 'bottom',
+          labels: {
+            boxWidth: 8,
+            font: { size: 10, family: 'JetBrains Mono' },
+            color: textColor,
+            padding: 10
+          }
+        }
       }
     }
   });
 
-  // Chart 3: Domains
+  // Chart 3: Domains Footprint (Bar Chart)
   const domCounts = { 'source_code': 0, 'artifacts': 0, 'infrastructure': 0, 'network': 0 };
   for (const c of state.components) {
     const d = c.domain || 'source_code';
@@ -355,7 +432,7 @@ function updateCharts() {
       datasets: [{
         label: 'Components',
         data: [domCounts.source_code, domCounts.artifacts, domCounts.infrastructure, domCounts.network],
-        backgroundColor: ['#06b6d4', '#8b5cf6', '#10b981', '#f59e0b'],
+        backgroundColor: ['#059669', '#10b981', '#d97706', '#475569'],
         borderRadius: 4
       }]
     },
@@ -363,8 +440,14 @@ function updateCharts() {
       responsive: true,
       maintainAspectRatio: false,
       scales: {
-        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', font: { size: 9, family: 'JetBrains Mono' } } },
-        x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 9, family: 'JetBrains Mono' } } }
+        y: {
+          grid: { color: gridColor },
+          ticks: { color: textColor, font: { size: 10, family: 'JetBrains Mono' } }
+        },
+        x: {
+          grid: { display: false },
+          ticks: { color: textColor, font: { size: 10, family: 'JetBrains Mono' } }
+        }
       },
       plugins: {
         legend: { display: false }
@@ -380,9 +463,9 @@ function renderDomainFilterList() {
   }
 
   elements.sidebarDomainList.innerHTML = Object.entries(domCounts).map(([dom, count]) => `
-    <div class="flex justify-between items-center px-2 py-1 rounded hover:bg-slate-800 cursor-pointer" onclick="filterBySidebarDomain('${dom}')">
-      <span class="text-slate-300 capitalize">${escapeHtml(dom.replace('_', ' '))}</span>
-      <span class="px-1.5 py-0.2 rounded bg-cyber-750 text-slate-400 font-bold">${count}</span>
+    <div class="flex justify-between items-center px-2.5 py-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800/80 cursor-pointer transition select-none" onclick="filterBySidebarDomain('${dom}')">
+      <span class="text-slate-600 dark:text-slate-300 capitalize text-xs">${escapeHtml(dom.replace('_', ' '))}</span>
+      <span class="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400">${count}</span>
     </div>
   `).join('');
 }
@@ -394,7 +477,7 @@ function filterBySidebarDomain(domain) {
 }
 
 // =========================================================================
-// 4. INVENTORY EXPLORER
+// 5. INVENTORY EXPLORER
 // =========================================================================
 
 function applyInventoryFilters() {
@@ -451,28 +534,28 @@ function renderInventoryTable() {
   elements.btnNextPage.disabled = state.currentPage >= totalPages;
 
   elements.inventoryTableBody.innerHTML = pageItems.map(c => `
-    <tr class="hover:bg-cyber-800/80 cursor-pointer transition border-b border-slate-800" onclick="openDetailDrawer('${c.ref}')">
-      <td class="py-2.5 px-3 font-bold text-white flex items-center space-x-2">
-        <i data-lucide="${getPrimitiveIcon(c.primitive)}" class="w-3.5 h-3.5 text-cyan-400 shrink-0"></i>
+    <tr class="data-table-row cursor-pointer border-b border-slate-100 dark:border-slate-800/80" onclick="openDetailDrawer('${c.ref}')">
+      <td class="py-2.5 px-3 font-semibold text-slate-900 dark:text-white flex items-center space-x-2">
+        <i data-lucide="${getPrimitiveIcon(c.primitive)}" class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0"></i>
         <span class="truncate max-w-[200px]" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</span>
       </td>
-      <td class="py-2.5 px-3 text-cyan-300 font-semibold">${escapeHtml(c.primitive)}</td>
-      <td class="py-2.5 px-3 text-slate-300 text-[11px]">
-        ${c.keyLength ? `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-400 mr-1">${c.keyLength} bits</span>` : ''}
-        ${c.mode ? `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-purple-400 mr-1">${escapeHtml(c.mode)}</span>` : ''}
-        ${c.curve ? `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-emerald-400 mr-1">${escapeHtml(c.curve)}</span>` : ''}
-        ${(!c.keyLength && !c.mode && !c.curve) ? `<span class="text-slate-500">—</span>` : ''}
+      <td class="py-2.5 px-3 text-slate-700 dark:text-slate-300 font-mono">${escapeHtml(c.primitive)}</td>
+      <td class="py-2.5 px-3 text-slate-500 dark:text-slate-400 text-[11px]">
+        ${c.keyLength ? `<span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 mr-1">${c.keyLength} bits</span>` : ''}
+        ${c.mode ? `<span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 mr-1">${escapeHtml(c.mode)}</span>` : ''}
+        ${c.curve ? `<span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 mr-1">${escapeHtml(c.curve)}</span>` : ''}
+        ${(!c.keyLength && !c.mode && !c.curve) ? `<span class="text-slate-400 dark:text-slate-600">—</span>` : ''}
       </td>
-      <td class="py-2.5 px-3 text-slate-400 capitalize">
-        <span class="px-2 py-0.5 rounded text-[10px] bg-cyber-750 border border-slate-700">${escapeHtml(c.domain.replace('_', ' '))}</span>
+      <td class="py-2.5 px-3 text-slate-500 dark:text-slate-400 capitalize">
+        <span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">${escapeHtml(c.domain.replace('_', ' '))}</span>
       </td>
-      <td class="py-2.5 px-3 text-slate-400 truncate max-w-[240px]" title="${escapeHtml(c.location)}">
+      <td class="py-2.5 px-3 text-slate-500 dark:text-slate-400 truncate max-w-[220px]" title="${escapeHtml(c.location)}">
         ${escapeHtml(truncatePath(c.location))}
       </td>
       <td class="py-2.5 px-3">${renderNistBadge(c.nistStatus)}</td>
       <td class="py-2.5 px-3">${renderQuantumBadge(c.isQuantumSafe, c.isShorVulnerable)}</td>
       <td class="py-2.5 px-3 text-right">
-        <button class="px-2 py-1 rounded bg-cyber-750 hover:bg-cyan-900/50 text-cyan-400 text-[11px] border border-cyan-800/40">
+        <button class="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-700 dark:text-slate-300 hover:text-emerald-700 dark:hover:text-emerald-400 border border-slate-200 dark:border-slate-700 text-[11px] transition">
           Inspect
         </button>
       </td>
@@ -493,7 +576,7 @@ function sortInventory(col) {
 }
 
 // =========================================================================
-// 5. MOSCA QUANTUM RISK SIMULATOR
+// 6. MOSCA QUANTUM RISK SIMULATOR
 // =========================================================================
 
 function renderMoscaSimulator() {
@@ -501,7 +584,7 @@ function renderMoscaSimulator() {
   const y = state.mosca.y;
   const zYear = state.mosca.z;
   const currentYear = 2026;
-  const z = Math.max(1, zYear - currentYear); // Years until quantum threat
+  const z = Math.max(1, zYear - currentYear);
 
   elements.sliderXVal.textContent = `${x.toFixed(1)} Years`;
   elements.sliderYVal.textContent = `${y.toFixed(1)} Years`;
@@ -512,36 +595,35 @@ function renderMoscaSimulator() {
 
   if (isBreached) {
     elements.moscaGlobalVerdict.textContent = `BREACHED (X + Y > Z)`;
-    elements.moscaGlobalVerdict.className = 'text-xl font-extrabold text-red-400 mt-1';
-    elements.moscaGlobalGap.textContent = `Deficit: ${gap.toFixed(1)} Years (Store-Now-Decrypt-Later Threat)`;
-    elements.moscaGlobalGap.className = 'text-[11px] font-mono text-red-300 mt-0.5';
+    elements.moscaGlobalVerdict.className = 'text-lg font-bold text-rose-600 dark:text-rose-400 mt-1';
+    elements.moscaGlobalGap.textContent = `Deficit: ${gap.toFixed(1)} Years (Store-Now-Decrypt-Later Active)`;
+    elements.moscaGlobalGap.className = 'text-[11px] font-mono text-amber-600 dark:text-amber-400 mt-0.5';
   } else {
     elements.moscaGlobalVerdict.textContent = `SAFE HORIZON (X + Y ≤ Z)`;
-    elements.moscaGlobalVerdict.className = 'text-xl font-extrabold text-emerald-400 mt-1';
+    elements.moscaGlobalVerdict.className = 'text-lg font-bold text-emerald-600 dark:text-emerald-400 mt-1';
     elements.moscaGlobalGap.textContent = `Safety Margin: +${gap.toFixed(1)} Years`;
-    elements.moscaGlobalGap.className = 'text-[11px] font-mono text-emerald-300 mt-0.5';
+    elements.moscaGlobalGap.className = 'text-[11px] font-mono text-emerald-600 dark:text-emerald-400 mt-0.5';
   }
 
-  // Filter breached assets: classical asymmetric or Shor vulnerable items
   const vulnerableAssets = state.components.filter(c => c.isShorVulnerable || !c.isQuantumSafe);
   elements.moscaBreachedCountLabel.textContent = `${vulnerableAssets.length} Vulnerable Assets`;
 
   elements.moscaTableBody.innerHTML = vulnerableAssets.slice(0, 30).map(c => `
-    <tr class="hover:bg-cyber-800/80 cursor-pointer" onclick="openDetailDrawer('${c.ref}')">
-      <td class="py-2.5 px-3 font-bold text-white flex items-center space-x-2">
-        <span class="inline-block w-2 h-2 rounded-full ${isBreached ? 'bg-red-400 animate-pulse' : 'bg-amber-400'}"></span>
+    <tr class="data-table-row cursor-pointer" onclick="openDetailDrawer('${c.ref}')">
+      <td class="py-2.5 px-3 font-semibold text-slate-900 dark:text-white flex items-center space-x-2">
+        <span class="inline-block w-2 h-2 rounded-full ${isBreached ? 'bg-rose-500' : 'bg-amber-500'}"></span>
         <span class="truncate max-w-[200px]">${escapeHtml(c.name)}</span>
       </td>
-      <td class="py-2.5 px-3 text-slate-400 truncate max-w-[220px]" title="${escapeHtml(c.location)}">${escapeHtml(truncatePath(c.location))}</td>
-      <td class="py-2.5 px-3 text-amber-300 font-semibold">${x.toFixed(1)}y</td>
-      <td class="py-2.5 px-3 text-cyan-300 font-semibold">${y.toFixed(1)}y</td>
-      <td class="py-2.5 px-3 text-purple-300 font-semibold">${zYear}</td>
+      <td class="py-2.5 px-3 text-slate-500 dark:text-slate-400 truncate max-w-[220px]" title="${escapeHtml(c.location)}">${escapeHtml(truncatePath(c.location))}</td>
+      <td class="py-2.5 px-3 text-amber-700 dark:text-amber-400 font-semibold">${x.toFixed(1)}y</td>
+      <td class="py-2.5 px-3 text-emerald-700 dark:text-emerald-400 font-semibold">${y.toFixed(1)}y</td>
+      <td class="py-2.5 px-3 text-slate-600 dark:text-slate-300 font-semibold">${zYear}</td>
       <td class="py-2.5 px-3">
-        <span class="px-2 py-0.5 rounded text-[10px] ${isBreached ? 'bg-red-950 text-red-300 border border-red-800' : 'bg-emerald-950 text-emerald-300 border border-emerald-800'}">
-          ${isBreached ? 'IMMINENT BREACH' : 'MONITORED'}
+        <span class="px-2 py-0.5 rounded text-[10px] font-bold ${isBreached ? 'badge-shor' : 'badge-pqc'}">
+          ${isBreached ? 'EXPOSED (SNDL)' : 'PROTECTED'}
         </span>
       </td>
-      <td class="py-2.5 px-3 text-emerald-400 font-bold font-mono">
+      <td class="py-2.5 px-3 text-emerald-600 dark:text-emerald-400 font-semibold font-mono">
         ${escapeHtml(c.mosca.recommendedPqc || 'ML-KEM / ML-DSA')}
       </td>
     </tr>
@@ -549,7 +631,7 @@ function renderMoscaSimulator() {
 }
 
 // =========================================================================
-// 6. POLICY VIOLATIONS & COMPLIANCE
+// 7. POLICY VIOLATIONS & COMPLIANCE
 // =========================================================================
 
 function renderVulnerabilities() {
@@ -569,10 +651,10 @@ function renderVulnerabilities() {
 
   if (!vulns.length) {
     elements.vulnerabilitiesGrid.innerHTML = `
-      <div class="col-span-2 p-8 text-center bg-cyber-850 rounded-xl border border-slate-800 text-slate-400">
-        <i data-lucide="shield-check" class="w-10 h-10 text-emerald-400 mx-auto mb-2"></i>
-        <p class="font-bold text-white">No Policy Violations Detected</p>
-        <p class="text-xs mt-1">All scanned assets adhere to configured cryptographic safety baselines.</p>
+      <div class="col-span-2 p-8 text-center bg-white dark:bg-[#121824] rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
+        <i data-lucide="shield-check" class="w-10 h-10 text-emerald-600 dark:text-emerald-400 mx-auto mb-2"></i>
+        <p class="font-bold text-slate-900 dark:text-white">Zero Cryptographic Policy Violations</p>
+        <p class="text-xs mt-1">All scanned assets adhere to baseline cryptographic security baselines.</p>
       </div>
     `;
     return;
@@ -580,25 +662,33 @@ function renderVulnerabilities() {
 
   elements.vulnerabilitiesGrid.innerHTML = vulns.map(v => {
     const sev = (v.ratings && v.ratings[0] && v.ratings[0].severity) ? v.ratings[0].severity.toUpperCase() : 'MEDIUM';
-    const sevColor = sev === 'CRITICAL' ? 'red' : (sev === 'HIGH' ? 'amber' : 'blue');
+    const isCrit = sev === 'CRITICAL';
+    const isHigh = sev === 'HIGH';
+
+    const badgeClass = isCrit
+      ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800'
+      : isHigh
+      ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800'
+      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700';
+
     return `
-      <div class="p-4 rounded-xl bg-cyber-850 border border-${sevColor}-900/40 hover:border-${sevColor}-500/50 transition space-y-2">
+      <div class="p-4 rounded-xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-slate-800 shadow-sm space-y-2.5 transition">
         <div class="flex items-center justify-between">
-          <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-${sevColor}-950 text-${sevColor}-300 border border-${sevColor}-800">
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}">
             ${sev}
           </span>
-          <span class="text-[10px] font-mono text-slate-500">${escapeHtml(v.id)}</span>
+          <span class="text-[10px] font-mono text-slate-400 dark:text-slate-500">${escapeHtml(v.id)}</span>
         </div>
-        <h4 class="text-xs font-bold text-white">${escapeHtml(v.description || 'Cryptographic compliance violation')}</h4>
-        ${v.recommendation ? `<p class="text-[11px] text-slate-400 font-sans">${escapeHtml(v.recommendation)}</p>` : ''}
-        ${v.affects ? `<div class="text-[10px] font-mono text-cyan-400 truncate">Target: ${escapeHtml(v.affects.map(a => a.ref).join(', '))}</div>` : ''}
+        <h4 class="text-xs font-bold text-slate-900 dark:text-white">${escapeHtml(v.description || 'Cryptographic policy violation')}</h4>
+        ${v.recommendation ? `<p class="text-[11px] text-slate-600 dark:text-slate-400 font-sans leading-relaxed">${escapeHtml(v.recommendation)}</p>` : ''}
+        ${v.affects ? `<div class="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">Target: ${escapeHtml(v.affects.map(a => a.ref).join(', '))}</div>` : ''}
       </div>
     `;
   }).join('');
 }
 
 // =========================================================================
-// 7. CROSS-DOMAIN TOPOLOGY
+// 8. CROSS-DOMAIN TOPOLOGY
 // =========================================================================
 
 function renderTopology() {
@@ -608,37 +698,37 @@ function renderTopology() {
   const infra = state.components.filter(c => c.domain === 'infrastructure' || c.domain === 'network').slice(0, 10);
 
   elements.topoSourceCol.innerHTML = sources.map(c => `
-    <div class="p-2.5 rounded bg-cyber-750 border border-slate-700/60 hover:border-cyan-500/50 cursor-pointer transition" onclick="openDetailDrawer('${c.ref}')">
-      <div class="font-bold text-white truncate">${escapeHtml(c.name)}</div>
-      <div class="text-[10px] text-cyan-400">${escapeHtml(c.primitive)}</div>
-      <div class="text-[9px] text-slate-500 truncate">${escapeHtml(truncatePath(c.location))}</div>
+    <div class="p-3 rounded-lg bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 hover:border-emerald-500 cursor-pointer transition shadow-sm" onclick="openDetailDrawer('${c.ref}')">
+      <div class="font-semibold text-slate-900 dark:text-white truncate">${escapeHtml(c.name)}</div>
+      <div class="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">${escapeHtml(c.primitive)}</div>
+      <div class="text-[9px] text-slate-400 truncate mt-1 font-mono">${escapeHtml(truncatePath(c.location))}</div>
     </div>
   `).join('');
 
   elements.topoBinaryCol.innerHTML = binaries.map(c => `
-    <div class="p-2.5 rounded bg-cyber-750 border border-slate-700/60 hover:border-purple-500/50 cursor-pointer transition" onclick="openDetailDrawer('${c.ref}')">
-      <div class="font-bold text-white truncate">${escapeHtml(c.name)}</div>
-      <div class="text-[10px] text-purple-400">${escapeHtml(c.algorithm)}</div>
+    <div class="p-3 rounded-lg bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 hover:border-emerald-500 cursor-pointer transition shadow-sm" onclick="openDetailDrawer('${c.ref}')">
+      <div class="font-semibold text-slate-900 dark:text-white truncate">${escapeHtml(c.name)}</div>
+      <div class="text-[10px] text-slate-600 dark:text-slate-300 font-mono mt-0.5">${escapeHtml(c.algorithm)}</div>
     </div>
   `).join('');
 
   elements.topoKeyCol.innerHTML = keys.map(c => `
-    <div class="p-2.5 rounded bg-cyber-750 border border-slate-700/60 hover:border-emerald-500/50 cursor-pointer transition" onclick="openDetailDrawer('${c.ref}')">
-      <div class="font-bold text-white truncate">${escapeHtml(c.name)}</div>
-      <div class="text-[10px] text-emerald-400">${escapeHtml(c.algorithm)}</div>
+    <div class="p-3 rounded-lg bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 hover:border-amber-500 cursor-pointer transition shadow-sm" onclick="openDetailDrawer('${c.ref}')">
+      <div class="font-semibold text-slate-900 dark:text-white truncate">${escapeHtml(c.name)}</div>
+      <div class="text-[10px] text-amber-600 dark:text-amber-400 font-mono mt-0.5">${escapeHtml(c.algorithm)}</div>
     </div>
   `).join('');
 
   elements.topoInfraCol.innerHTML = infra.map(c => `
-    <div class="p-2.5 rounded bg-cyber-750 border border-slate-700/60 hover:border-amber-500/50 cursor-pointer transition" onclick="openDetailDrawer('${c.ref}')">
-      <div class="font-bold text-white truncate">${escapeHtml(c.name)}</div>
-      <div class="text-[10px] text-amber-400">${escapeHtml(c.algorithm)}</div>
+    <div class="p-3 rounded-lg bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 hover:border-slate-400 cursor-pointer transition shadow-sm" onclick="openDetailDrawer('${c.ref}')">
+      <div class="font-semibold text-slate-900 dark:text-white truncate">${escapeHtml(c.name)}</div>
+      <div class="text-[10px] text-slate-600 dark:text-slate-300 font-mono mt-0.5">${escapeHtml(c.algorithm)}</div>
     </div>
   `).join('');
 }
 
 // =========================================================================
-// 8. RAW CYCLONEDX JSON VIEWER
+// 9. RAW CYCLONEDX JSON VIEWER
 // =========================================================================
 
 function renderRawJson() {
@@ -651,7 +741,7 @@ function renderRawJson() {
 }
 
 // =========================================================================
-// 9. DETAIL DRAWER MODAL
+// 10. DETAIL DRAWER MODAL
 // =========================================================================
 
 function openDetailDrawer(ref) {
@@ -664,91 +754,91 @@ function openDetailDrawer(ref) {
 
   elements.drawerContent.innerHTML = `
     <!-- Top Identity Card -->
-    <div class="p-4 rounded-xl bg-cyber-800 border border-slate-700 space-y-2">
+    <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-2">
       <div class="flex justify-between items-center">
-        <span class="text-slate-400">Primitive Type</span>
-        <span class="font-bold text-cyan-400 uppercase">${escapeHtml(component.primitive)}</span>
+        <span class="text-slate-500 dark:text-slate-400">Primitive Type</span>
+        <span class="font-bold text-emerald-600 dark:text-emerald-400 uppercase">${escapeHtml(component.primitive)}</span>
       </div>
       <div class="flex justify-between items-center">
-        <span class="text-slate-400">Parameter Set / Algorithm</span>
-        <span class="font-bold text-white">${escapeHtml(component.algorithm)}</span>
+        <span class="text-slate-500 dark:text-slate-400">Parameter Set / Algorithm</span>
+        <span class="font-bold text-slate-900 dark:text-white">${escapeHtml(component.algorithm)}</span>
       </div>
       <div class="flex justify-between items-center">
-        <span class="text-slate-400">Domain Environment</span>
-        <span class="font-semibold text-slate-300 capitalize">${escapeHtml(component.domain.replace('_', ' '))}</span>
+        <span class="text-slate-500 dark:text-slate-400">Domain Environment</span>
+        <span class="font-semibold text-slate-700 dark:text-slate-300 capitalize">${escapeHtml(component.domain.replace('_', ' '))}</span>
       </div>
-      ${component.keyLength ? `<div class="flex justify-between items-center"><span class="text-slate-400">Key Length</span><span class="text-cyan-300 font-bold">${component.keyLength} bits</span></div>` : ''}
-      ${component.mode ? `<div class="flex justify-between items-center"><span class="text-slate-400">Block Cipher Mode</span><span class="text-purple-300">${escapeHtml(component.mode)}</span></div>` : ''}
-      ${component.curve ? `<div class="flex justify-between items-center"><span class="text-slate-400">Elliptic Curve</span><span class="text-emerald-300">${escapeHtml(component.curve)}</span></div>` : ''}
+      ${component.keyLength ? `<div class="flex justify-between items-center"><span class="text-slate-500 dark:text-slate-400">Key Length</span><span class="text-slate-900 dark:text-white font-bold">${component.keyLength} bits</span></div>` : ''}
+      ${component.mode ? `<div class="flex justify-between items-center"><span class="text-slate-500 dark:text-slate-400">Cipher Mode</span><span class="text-slate-700 dark:text-slate-300">${escapeHtml(component.mode)}</span></div>` : ''}
+      ${component.curve ? `<div class="flex justify-between items-center"><span class="text-slate-500 dark:text-slate-400">Elliptic Curve</span><span class="text-slate-700 dark:text-slate-300">${escapeHtml(component.curve)}</span></div>` : ''}
     </div>
 
     <!-- NIST & Quantum Classification -->
-    <div class="p-4 rounded-xl bg-cyber-800 border border-slate-700 space-y-2">
-      <h4 class="text-xs font-bold text-slate-400 uppercase">Compliance & Quantum Risk</h4>
+    <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-2">
+      <h4 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Compliance & Quantum Risk</h4>
       <div class="flex justify-between items-center">
-        <span class="text-slate-400">NIST Standard Status</span>
+        <span class="text-slate-500 dark:text-slate-400">NIST Standard Status</span>
         <span>${renderNistBadge(component.nistStatus)}</span>
       </div>
       <div class="flex justify-between items-center">
-        <span class="text-slate-400">Quantum-Safe Assurance</span>
-        <span class="font-bold ${component.isQuantumSafe ? 'text-emerald-400' : 'text-red-400'}">${component.isQuantumSafe ? 'YES (FIPS 203/204/205 / AES-256)' : 'NO'}</span>
+        <span class="text-slate-500 dark:text-slate-400">Quantum-Safe Assurance</span>
+        <span class="font-bold ${component.isQuantumSafe ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}">${component.isQuantumSafe ? 'YES (FIPS 203/204/205 / AES-256)' : 'NO'}</span>
       </div>
       <div class="flex justify-between items-center">
-        <span class="text-slate-400">Shor Algorithm Vulnerable</span>
-        <span class="font-bold ${component.isShorVulnerable ? 'text-red-400' : 'text-emerald-400'}">${component.isShorVulnerable ? 'YES (Vulnerable to Quantum Factorization)' : 'NO'}</span>
+        <span class="text-slate-500 dark:text-slate-400">Shor Algorithm Vulnerable</span>
+        <span class="font-bold ${component.isShorVulnerable ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}">${component.isShorVulnerable ? 'YES (Vulnerable to Shor Factorization)' : 'NO'}</span>
       </div>
     </div>
 
     <!-- Mosca Assessment -->
-    <div class="p-4 rounded-xl bg-cyber-800 border border-slate-700 space-y-2">
-      <h4 class="text-xs font-bold text-amber-400 uppercase">Michele Mosca's Risk Evaluation</h4>
+    <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-2">
+      <h4 class="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase">Michele Mosca Risk Evaluation</h4>
       <div class="flex justify-between items-center">
-        <span class="text-slate-400">Risk Severity Level</span>
-        <span class="font-bold ${component.mosca.riskLevel === 'CRITICAL' ? 'text-red-400' : 'text-amber-400'}">${component.mosca.riskLevel}</span>
+        <span class="text-slate-500 dark:text-slate-400">Risk Severity Level</span>
+        <span class="font-bold ${component.mosca.riskLevel === 'CRITICAL' ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}">${component.mosca.riskLevel}</span>
       </div>
       <div class="flex justify-between items-center">
-        <span class="text-slate-400">SNDL Exposure</span>
-        <span class="font-bold ${component.mosca.sndl ? 'text-red-400' : 'text-slate-400'}">${component.mosca.sndl ? 'Store-Now-Decrypt-Later' : 'Standard'}</span>
+        <span class="text-slate-500 dark:text-slate-400">SNDL Exposure</span>
+        <span class="font-bold ${component.mosca.sndl ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500 dark:text-slate-400'}">${component.mosca.sndl ? 'Store-Now-Decrypt-Later' : 'Standard'}</span>
       </div>
       <div class="flex justify-between items-center">
-        <span class="text-slate-400">PQC Replacement Path</span>
-        <span class="font-bold text-emerald-400">${escapeHtml(component.mosca.recommendedPqc)}</span>
+        <span class="text-slate-500 dark:text-slate-400">PQC Replacement Path</span>
+        <span class="font-bold text-emerald-600 dark:text-emerald-400">${escapeHtml(component.mosca.recommendedPqc)}</span>
       </div>
     </div>
 
     <!-- Code Detection Context & Blast Radius -->
-    <div class="p-4 rounded-xl bg-cyber-800 border border-slate-700 space-y-2">
-      <h4 class="text-xs font-bold text-cyan-400 uppercase">Blast Radius & Detection Context</h4>
+    <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-2">
+      <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase">Detection Context</h4>
       <div class="space-y-1">
-        <span class="text-slate-400 block">Exact Code Location:</span>
-        <div class="p-2 rounded bg-cyber-900 border border-slate-800 text-cyan-300 break-all select-all font-mono text-[11px]">
+        <span class="text-slate-500 dark:text-slate-400 block text-[11px]">Exact Code Location:</span>
+        <div class="p-2.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 break-all select-all font-mono text-[11px]">
           ${escapeHtml(component.location)}
         </div>
       </div>
       <div class="grid grid-cols-3 gap-2 pt-2 text-center">
-        <div class="p-2 rounded bg-cyber-900 border border-slate-800">
-          <div class="text-lg font-bold text-white">${component.directCalls}</div>
-          <div class="text-[9px] text-slate-500 uppercase">Direct Calls</div>
+        <div class="p-2 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+          <div class="text-base font-bold text-slate-900 dark:text-white">${component.directCalls}</div>
+          <div class="text-[9px] text-slate-400 uppercase">Direct Calls</div>
         </div>
-        <div class="p-2 rounded bg-cyber-900 border border-slate-800">
-          <div class="text-lg font-bold text-white">${component.transitiveCalls}</div>
-          <div class="text-[9px] text-slate-500 uppercase">Transitive Calls</div>
+        <div class="p-2 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+          <div class="text-base font-bold text-slate-900 dark:text-white">${component.transitiveCalls}</div>
+          <div class="text-[9px] text-slate-400 uppercase">Transitive Calls</div>
         </div>
-        <div class="p-2 rounded bg-cyber-900 border border-slate-800">
-          <div class="text-lg font-bold text-white">${component.callDepth}</div>
-          <div class="text-[9px] text-slate-500 uppercase">Call Depth</div>
+        <div class="p-2 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+          <div class="text-base font-bold text-slate-900 dark:text-white">${component.callDepth}</div>
+          <div class="text-[9px] text-slate-400 uppercase">Call Depth</div>
         </div>
       </div>
     </div>
 
-    <!-- Raw Properties Object -->
-    <div class="p-4 rounded-xl bg-cyber-800 border border-slate-700 space-y-2">
-      <h4 class="text-xs font-bold text-slate-400 uppercase">CycloneDX 1.6 Ext Properties</h4>
+    <!-- CycloneDX Properties -->
+    <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-2">
+      <h4 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">CycloneDX 1.6 Extended Properties</h4>
       <div class="max-h-48 overflow-y-auto space-y-1">
         ${Object.entries(component.rawProps).map(([k, v]) => `
-          <div class="flex justify-between items-center py-0.5 border-b border-slate-800 text-[10px]">
-            <span class="text-slate-400 font-mono">${escapeHtml(k)}:</span>
-            <span class="text-cyan-300 font-mono font-bold truncate max-w-[240px]">${escapeHtml(String(v))}</span>
+          <div class="flex justify-between items-center py-1 border-b border-slate-200 dark:border-slate-700/60 text-[10px]">
+            <span class="text-slate-500 dark:text-slate-400 font-mono">${escapeHtml(k)}:</span>
+            <span class="text-slate-900 dark:text-white font-mono font-medium truncate max-w-[240px]">${escapeHtml(String(v))}</span>
           </div>
         `).join('')}
       </div>
@@ -757,6 +847,7 @@ function openDetailDrawer(ref) {
 
   elements.detailDrawer.classList.remove('translate-x-full');
   elements.detailDrawerBackdrop.classList.remove('hidden');
+  lucide.createIcons();
 }
 
 function closeDetailDrawer() {
@@ -766,7 +857,7 @@ function closeDetailDrawer() {
 }
 
 // =========================================================================
-// 10. HELPER FORMATTERS & BADGES
+// 11. HELPER FORMATTERS & BADGES
 // =========================================================================
 
 function renderNistBadge(status) {
@@ -782,7 +873,7 @@ function renderNistBadge(status) {
   } else if (s === 'broken_classical') {
     return `<span class="px-2 py-0.5 rounded text-[10px] font-bold badge-broken">BROKEN</span>`;
   }
-  return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400">UNKNOWN</span>`;
+  return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">UNKNOWN</span>`;
 }
 
 function renderQuantumBadge(isQuantumSafe, isShorVulnerable) {
@@ -798,7 +889,7 @@ function getPrimitiveIcon(primitive) {
   const p = String(primitive || '').toLowerCase();
   if (p.includes('key')) return 'key';
   if (p.includes('cipher')) return 'lock';
-  if (p.includes('signature')) return 'feather';
+  if (p.includes('signature')) return 'file-check-2';
   if (p.includes('hash')) return 'hash';
   if (p.includes('certificate')) return 'file-badge';
   if (p.includes('secure_transport') || p.includes('protocol')) return 'shield';
@@ -824,10 +915,18 @@ function truncatePath(path) {
 }
 
 // =========================================================================
-// 11. EVENT LISTENERS
+// 12. EVENT LISTENERS
 // =========================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Theme initialization
+  initTheme();
+
+  // Theme Toggle Button
+  if (elements.btnThemeToggle) {
+    elements.btnThemeToggle.addEventListener('click', toggleTheme);
+  }
+
   // Navigation
   document.querySelectorAll('.nav-tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -847,7 +946,6 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const parsed = JSON.parse(event.target.result);
         processCbomData(parsed);
-        // Post to server so it updates active state
         fetch('/api/cbom', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

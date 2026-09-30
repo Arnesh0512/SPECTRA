@@ -1,121 +1,248 @@
-/* Spectra Cyber & Quantum Visualizer Styles */
+/* ==========================================================================
+   SPECTRA ENTERPRISE CBOM VISUALIZER & POST-QUANTUM ASSURANCE
+   Modern, Executive, Minimal Design System (Light & Dark Theme Engine)
+   Strictly Zero Neon AI/Cyber Clutter • No Blue / Purple Color Scheme
+   ========================================================================== */
 
+/* Theme Variables */
 :root {
-  --bg-primary: #070a12;
-  --bg-secondary: #0b101d;
-  --cyan-glow: rgba(6, 182, 212, 0.25);
-  --purple-glow: rgba(139, 92, 246, 0.25);
+  --font-sans: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Light Theme Palette (Clean Executive Slate & Pure Emerald) */
+  --bg-app: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f1f5f9;
+  --bg-muted: #e2e8f0;
+  
+  --border-subtle: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --border-focus: #059669;
+
+  --text-main: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+
+  /* Accent & Functional Status Colors (No Blue, No Purple) */
+  --emerald-primary: #059669;
+  --emerald-subtle: #ecfdf5;
+  --emerald-border: #a7f3d0;
+  --emerald-text: #065f46;
+
+  --amber-primary: #d97706;
+  --amber-subtle: #fffbeb;
+  --amber-border: #fde68a;
+  --amber-text: #92400e;
+
+  --red-primary: #dc2626;
+  --red-subtle: #fef2f2;
+  --red-border: #fecaca;
+  --red-text: #991b1b;
+
+  --slate-tag-bg: #f1f5f9;
+  --slate-tag-border: #cbd5e1;
+  --slate-tag-text: #334155;
+
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --card-shadow-hover: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
 }
 
+html.dark {
+  /* Dark Theme Palette (Deep Architectural Charcoal / Slate & Luminous Jade) */
+  --bg-app: #0b0f17;
+  --bg-surface: #121824;
+  --bg-subtle: #182030;
+  --bg-muted: #222d42;
+
+  --border-subtle: #202b3d;
+  --border-strong: #2e3c54;
+  --border-focus: #10b981;
+
+  --text-main: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #8393a8;
+  --text-faint: #56657a;
+
+  --emerald-primary: #10b981;
+  --emerald-subtle: rgba(16, 185, 129, 0.12);
+  --emerald-border: rgba(16, 185, 129, 0.35);
+  --emerald-text: #34d399;
+
+  --amber-primary: #f59e0b;
+  --amber-subtle: rgba(245, 158, 11, 0.12);
+  --amber-border: rgba(245, 158, 11, 0.35);
+  --amber-text: #fbbf24;
+
+  --red-primary: #ef4444;
+  --red-subtle: rgba(239, 68, 68, 0.14);
+  --red-border: rgba(239, 68, 68, 0.35);
+  --red-text: #f87171;
+
+  --slate-tag-bg: #1c2434;
+  --slate-tag-border: #2e3c54;
+  --slate-tag-text: #94a3b8;
+
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.25);
+  --card-shadow-hover: 0 4px 10px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* Base Document Styling */
 body {
-  background-color: var(--bg-primary);
-  color: #e2e8f0;
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  letter-spacing: -0.011em;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* Custom Scrollbar */
+/* Minimal Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0b101d;
+  background: var(--bg-app);
 }
 ::-webkit-scrollbar-thumb {
-  background: #1f2937;
+  background: var(--border-strong);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #374151;
+  background: var(--text-muted);
 }
 
-/* Navigation Tabs */
+/* Sidebar Navigation Tabs */
 .nav-tab {
-  color: #94a3b8;
+  color: var(--text-muted);
   position: relative;
-  transition: all 0.2s ease-in-out;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
 }
 
 .nav-tab:hover {
-  color: #f1f5f9;
-  background-color: rgba(31, 41, 55, 0.6);
+  color: var(--text-main);
+  background-color: var(--bg-subtle);
 }
 
 .nav-tab.active {
-  color: #22d3ee;
-  background-color: rgba(6, 182, 212, 0.12);
-  border: 1px solid rgba(6, 182, 212, 0.35);
-  box-shadow: 0 0 15px rgba(6, 182, 212, 0.1);
+  color: var(--text-main);
+  background-color: var(--bg-subtle);
+  border-color: var(--border-subtle);
+  font-weight: 600;
 }
 
-.nav-tab.active svg {
-  color: #06b6d4;
+.nav-tab.active .nav-icon {
+  color: var(--emerald-primary);
 }
 
-/* Sections */
+/* Tab Sections */
 .section-pane {
   display: none;
-  animation: fadeIn 0.25s ease-in-out;
+  animation: tabFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .section-pane.active {
   display: block;
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
+@keyframes tabFadeIn {
+  from { opacity: 0; transform: translateY(3px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Glassmorphism panels */
-.glass-panel {
-  background: rgba(17, 24, 39, 0.7);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+/* Minimal Card Component */
+.card-base {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+  box-shadow: var(--card-shadow);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-/* Glowing Badges */
+.card-base:hover {
+  box-shadow: var(--card-shadow-hover);
+}
+
+/* Professional Compliance & Quantum Status Badges */
 .badge-pqc {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.4);
+  background-color: var(--emerald-subtle);
+  color: var(--emerald-text);
+  border: 1px solid var(--emerald-border);
 }
 
 .badge-shor {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  background-color: var(--red-subtle);
+  color: var(--red-text);
+  border: 1px solid var(--red-border);
 }
 
 .badge-approved {
-  background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
-  border: 1px solid rgba(59, 130, 246, 0.4);
+  background-color: var(--slate-tag-bg);
+  color: var(--slate-tag-text);
+  border: 1px solid var(--slate-tag-border);
 }
 
 .badge-deprecated {
-  background: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.4);
+  background-color: var(--amber-subtle);
+  color: var(--amber-text);
+  border: 1px solid var(--amber-border);
 }
 
 .badge-broken {
-  background: rgba(220, 38, 38, 0.2);
-  color: #fca5a5;
-  border: 1px solid rgba(220, 38, 38, 0.5);
+  background-color: var(--red-subtle);
+  color: var(--red-text);
+  border: 1px solid var(--red-border);
 }
 
-/* Table Row Hover */
-#inventoryTableBody tr {
-  transition: background-color 0.15s ease;
-}
-
-#inventoryTableBody tr:hover {
-  background-color: rgba(31, 41, 55, 0.5);
-}
-
-/* Range input accent */
+/* Minimalist Range Sliders (No glowing cyber effects) */
 input[type=range] {
-  height: 6px;
-  border-radius: 3px;
-  background: #1f2937;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 5px;
+  border-radius: 9999px;
+  background: var(--bg-muted);
+  outline: none;
+  transition: background 0.15s ease;
+}
+
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--emerald-primary);
+  border: 2px solid var(--bg-surface);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.1s ease;
+}
+
+input[type=range]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+input[type=range]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--emerald-primary);
+  border: 2px solid var(--bg-surface);
+  cursor: pointer;
+}
+
+/* Modern Minimal Data Table Rows */
+.data-table-row {
+  transition: background-color 0.12s ease;
+}
+
+.data-table-row:hover {
+  background-color: var(--bg-subtle) !important;
+}
+
+/* Pre / Code Blocks */
+pre, code {
+  font-family: var(--font-mono);
 }
