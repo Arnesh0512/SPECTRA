@@ -575,16 +575,19 @@ def scan(
     _print_findings_summary(correlated_assets)
     _print_quantum_risk_summary(mosca_evals)
 
-    # --- Re-display explicit CBOM Generation Link at End ---
-    output_uri = f"file:///{output_path.resolve().as_posix()}"
-    log_success(f"CycloneDX 1.6 CBOM successfully generated and saved to: [bold bright_cyan underline][link={output_uri}]{output_path}[/link][/bold bright_cyan underline]")
+    # Format valid clickable RFC 8089 file URI (exactly 3 slashes)
+    posix_path = output_path.resolve().as_posix()
+    if posix_path.startswith("/mnt/c/"):
+        file_uri = f"file:///C:/{posix_path[7:].lstrip('/')}"
+    else:
+        file_uri = f"file:///{posix_path.lstrip('/')}"
 
     # --- Render Final Artifact Completion Card ---
     file_size_kb = (output_path.stat().st_size / 1024.0) if output_path.exists() else 0.0
     completion_panel = Panel(
         Align.center(
             f"[bold bright_green]✔ CYCLONEDX 1.6 CRYPTOGRAPHIC BILL OF MATERIALS GENERATED[/bold bright_green]\n\n"
-            f"[bright_white]Artifact File:[/bright_white] [bold cyan]{output_path}[/bold cyan]  │  "
+            f"[bright_white]Artifact File:[/bright_white] [bold bright_cyan underline][link={file_uri}]{output_path}[/link][/bold bright_cyan underline]  │  "
             f"[bright_white]Components:[/bright_white] [bold green]{len(correlated_assets):,}[/bold green]  │  "
             f"[bright_white]Size:[/bright_white] [bold yellow]{file_size_kb:.1f} KB[/bold yellow]  │  "
             f"[bright_white]Spec:[/bright_white] [bold magenta]CycloneDX 1.6[/bold magenta]"
@@ -596,7 +599,7 @@ def scan(
     )
     console.print()
     console.print(completion_panel)
-    console.print(f"  [bold green]✔ Output Link:[/bold green] [bold bright_cyan underline][link={output_uri}]{output_path.resolve()}[/link][/bold bright_cyan underline]\n")
+    console.print(f"  📄 [bold green]CBOM Artifact Link:[/bold green] [bold bright_cyan underline][link={file_uri}]{output_path.resolve()}[/link][/bold bright_cyan underline]\n")
 
     # --- Launch / Connect Interactive CBOM Web Visualizer ---
     web_url = _ensure_visualizer_running(output_path, port=3000)
@@ -605,7 +608,9 @@ def scan(
             Align.center(
                 f"[bold bright_cyan]🌐 INTERACTIVE CBOM & QUANTUM RISK WEB VISUALIZER[/bold bright_cyan]\n\n"
                 f"[bright_white]Click to inspect full CBOM in browser:[/bright_white]  "
-                f"[bold underline bright_yellow][link={web_url}]{web_url}[/link][/bold underline bright_yellow]\n\n"
+                f"[bold underline bright_yellow][link={web_url}]{web_url}[/link][/bold underline bright_yellow]\n"
+                f"[bright_white]View Raw CBOM JSON (Browser/API):[/bright_white]      "
+                f"[bold underline cyan][link={web_url}/api/cbom]{web_url}/api/cbom[/link][/bold underline cyan]\n\n"
                 f"[dim bright_white]Executive KPIs • Inventory Explorer • Mosca Simulator • NIST PQC Compliance • Graph Topology[/dim bright_white]"
             ),
             title="[bold bright_green] LOCALHOST CONSOLE [/bold bright_green]",
