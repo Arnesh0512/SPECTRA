@@ -294,13 +294,13 @@ def scan(
 
     console.print("  [bold underline bright_cyan]Domain 1: Source Code & Call-Graph Inspection[/bold underline bright_cyan]")
     scan_source = Confirm.ask("    [bright_white]• Scan codebase source files (AST & Token Analysis)[/bright_white]", default=True)
-    scan_deps = Confirm.ask("    [bright_white]• Scan Dependency manifests (SBOM & lockfiles)[/bright_white]", default=True)
+    scan_deps = Confirm.ask("    [bright_white]• Scan Dependency manifests (SBOM & lockfiles)[/bright_white]", default=False)
 
     console.print("\n  [bold underline yellow]Domain 2: Cryptographic Artifacts & Binaries[/bold underline yellow]")
     scan_certs = Confirm.ask("    [bright_white]• Scan X.509 Certificates & Private Keys (.pem, .crt, .key)[/bright_white]", default=True)
     scan_docker = Confirm.ask("    [bright_white]• Scan Docker container files (Dockerfile, Compose)[/bright_white]", default=True)
     scan_binaries = Confirm.ask("    [bright_white]• Scan Binary executables & shared libraries (.so, .dll, ELF)[/bright_white]", default=True)
-    scan_runtime_artifacts = Confirm.ask("    [bright_white]• Scan Active process memory & dynamic runtime packages[/bright_white]", default=True)
+    scan_runtime_artifacts = Confirm.ask("    [bright_white]• Scan Active process memory & dynamic runtime packages[/bright_white]", default=False)
     enable_artifacts = scan_certs or scan_docker or scan_binaries or scan_runtime_artifacts
 
     console.print("\n  [bold underline magenta]Domain 3: Infrastructure & Cloud Key Management[/bold underline magenta]")
@@ -309,7 +309,7 @@ def scan(
     enable_infra = scan_terraform or scan_cloud_hsm
 
     console.print("\n  [bold underline blue]Domain 4: Network Protocols & TLS Perimeter[/bold underline blue]")
-    enable_network = Confirm.ask("    [bright_white]• Scan live remote TLS endpoints & web servers?[/bright_white]", default=False)
+    enable_network = Confirm.ask("    [bright_white]• Scan live remote TLS endpoints & web servers?[/bright_white]", default=True)
     endpoints: List[str] = []
     if enable_network:
         endpoints_input = Prompt.ask(
