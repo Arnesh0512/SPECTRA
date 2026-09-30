@@ -63,7 +63,7 @@ app = typer.Typer(
     add_completion=False,
 )
 
-def _is_server_listening(host: str = "0.0.0.0", port: int = 3000) -> bool:
+def _is_server_listening(host: str = "127.0.0.1", port: int = 3000) -> bool:
     """Checks if a TCP port is currently open and responding."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -76,7 +76,7 @@ def _is_server_listening(host: str = "0.0.0.0", port: int = 3000) -> bool:
 
 def _ensure_visualizer_running(cbom_path: Path, port: int = 3000) -> Optional[str]:
     """Ensures the Spectra CBOM Web Visualizer server is running in the background."""
-    if _is_server_listening("0.0.0.0", port):
+    if _is_server_listening("127.0.0.1", port):
         return f"http://localhost:{port}"
 
     candidate_server_paths = [
@@ -110,7 +110,7 @@ def _ensure_visualizer_running(cbom_path: Path, port: int = 3000) -> Optional[st
         )
         for _ in range(15):
             time.sleep(0.1)
-            if _is_server_listening("0.0.0.0", port):
+            if _is_server_listening("127.0.0.1", port):
                 break
     except Exception:
         pass
@@ -615,6 +615,12 @@ def scan(
         )
         console.print(visualizer_panel)
         console.print(f"  🌐 [bold bright_cyan]Interactive Visualizer Link:[/bold bright_cyan] [bold underline bright_yellow][link={web_url}]{web_url}[/link][/bold underline bright_yellow]\n")
+        console.print("  [dim]Press Ctrl+C to shut down and exit...[/dim]\n")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            console.print("\n[dim]Shutting down visualizer...[/dim]")
 
     # Check failure conditions
     critical_breaches = any(
@@ -763,6 +769,13 @@ def ui(
 
     if open_browser:
         webbrowser.open(url)
+
+    console.print("  [dim]Press Ctrl+C to shut down and exit...[/dim]\n")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        console.print("\n[dim]Shutting down visualizer...[/dim]")
 
 
 def _print_findings_summary(correlated_assets: list) -> None:
