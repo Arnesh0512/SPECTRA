@@ -9,8 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Stage 2: Minimal runtime image
 FROM python:3.11-slim AS runtime
@@ -27,16 +30,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     npm \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed Python packages from builder
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
 
 # Copy application source and configurations
 COPY pyproject.toml .
 COPY cbom_policy.json .
-COPY config.example.yaml .
+COPY crypto_policy_rules.json .
 COPY package.json .
 COPY web/ ./web/
 COPY spectra/ ./spectra/
@@ -44,16 +47,16 @@ COPY spectra/ ./spectra/
 # Install Node dependencies for web visualizer
 RUN npm install --omit=dev
 
-# Install spectra as a package
+# Install spectra as an editable package into /opt/venv
 RUN pip install --no-cache-dir -e .
 
 # Expose web visualizer port
 EXPOSE 3000
 
-# Create non-root runner user
+# Create non-root runner user and give access to /app and /opt/venv
 RUN useradd -u 10001 -m appuser && \
-    chown -R appuser:appuser /app
+    chown -R appuser:appuser /app /opt/venv
 USER appuser
 
 ENTRYPOINT ["spectra"]
-CMD ["--help"]
+CMD ["--help"]
