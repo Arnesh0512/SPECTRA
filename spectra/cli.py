@@ -55,6 +55,7 @@ from spectra.utils.logger import (
     log_success,
     log_warning,
 )
+from spectra.utils.docker_client import DockerContainerClient
 
 app = typer.Typer(
     name="spectra",
@@ -244,80 +245,207 @@ def scan(
         "--fail-on-critical",
         help="Return a non-zero exit code if CRITICAL vulnerabilities or breached Mosca inequalities are detected.",
     ),
+    container: Optional[str] = typer.Option(
+        None,
+        "--container",
+        "-c",
+        help="Target running Docker container name or ID to scan directly via Docker socket.",
+    ),
+    path: Optional[str] = typer.Option(
+        None,
+        "--path",
+        "-p",
+        help="Target perimeter directory path inside container or host (default: container working directory or current directory).",
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Destination CBOM artifact JSON file path (default: cbom.json).",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Non-interactive mode: accept all defaults automatically.",
+    ),
 ) -> None:
     """Run an interactive TUI wizard to configure and execute a multi-domain cryptographic scan."""
     _render_hero_banner()
 
-    # --- STEP 1: Target & Output Configuration ---
-    _render_step_card(
-        1, 4,
-        "Target & Output Configuration",
-        "Define target perimeter directory and destination CBOM artifact path.",
-        "📂",
-    )
-    console.print("  [bold cyan]1.1 Target Perimeter Path[/bold cyan]")
-    target_str = Prompt.ask("      [dim]↳ Enter directory path[/dim]", default=".")
-    target_path = Path(target_str).resolve()
-    console.print(f"      [bold green]✔ Perimeter bound to:[/bold green] [bold bright_white]{target_path}[/bold bright_white]\n")
+    docker_client = DockerContainerClient()
+    is_docker_available = docker_client.is_available()
 
-    console.print("  [bold cyan]1.2 Destination CBOM Artifact[/bold cyan]")
-    output_str = Prompt.ask("      [dim]↳ Enter output JSON filename[/dim]", default="cbom.json")
-    output_path = Path(output_str).resolve()
+    target_container = container
+    target_path: Path
+    container_internal_path = path
+
+    # --- STEP 1: Target & Output Configuration ---
+    if target_container:
+        _render_step_card(
+            1, 4,
+            "Target & Output Configuration",
+            f"Container Mode Active: Scanning Docker container '{target_container}'.",
+            "🐳",
+        )
+        if not is_docker_available:
+            console.print("[bold red]✖ Docker socket (/var/run/docker.sock) is not accessible![/bold red]")
+            console.print("[dim]Ensure Docker socket is mounted via '-v /var/run/docker.sock:/var/run/docker.sock'[/dim]")
+            raise typer.Exit(1)
+
+        try:
+            c_info = docker_client.get_container_info(target_container)
+        except Exception as e:
+            console.print(f"[bold red]✖ Failed to locate container '{target_container}': {e}[/bold red]")
+            raise typer.Exit(1)
+
+        c_status = c_info.get("State", {}).get("Status", "unknown")
+        c_image = c_info.get("Config", {}).get("Image", "unknown")
+        env_vars = dict(e.split("=", 1) for e in c_info.get("Config", {}).get("Env", []) if "=" in e)
+        c_user = c_info.get("Config", {}).get("User", "")
+        c_home = env_vars.get("HOME")
+        if not c_home:
+            c_home = f"/home/{c_user}" if (c_user and c_user != "root") else "/root"
+        console.print(f"      [bold cyan]• Target Container:[/bold cyan] [bold bright_white]{target_container}[/bold bright_white] ({c_status})")
+        console.print(f"      [bold cyan]• Base Image:[/bold cyan] [dim]{c_image}[/dim]")
+
+        if not container_internal_path:
+            if yes:
+                container_internal_path = c_home
+            else:
+                container_internal_path = Prompt.ask(
+                    "      [dim]↳ Enter directory path inside container[/dim]",
+                    default=c_home,
+                    show_default=False,
+                )
+
+        console.print(f"      [bold yellow]⚡ Resolving container perimeter {target_container}:{container_internal_path}...[/bold yellow]")
+        try:
+            target_path, _ = docker_client.resolve_container_perimeter(target_container, container_internal_path)
+            console.print(f"      [bold green]✔ Container perimeter bound to:[/bold green] [bold bright_white]{target_path}[/bold bright_white]\n")
+        except Exception as e:
+            console.print(f"[bold red]✖ Container perimeter extraction failed: {e}[/bold red]")
+            raise typer.Exit(1)
+    else:
+        _render_step_card(
+            1, 4,
+            "Target & Output Configuration",
+            "Define target perimeter directory and destination CBOM artifact path.",
+            "📂",
+        )
+        console.print("  [bold cyan]1.1 Target Perimeter Path[/bold cyan]")
+        prompt_label = "      [dim]↳ Enter directory path or container name[/dim]" if is_docker_available else "      [dim]↳ Enter directory path[/dim]"
+        target_str = path if (path and yes) else Prompt.ask(prompt_label, default=".", show_default=False)
+
+        if is_docker_available and (target_str.startswith("container:") or target_str.startswith("docker:")):
+            target_container = target_str.split(":", 1)[1]
+            c_int_path = None
+            if ":" in target_container:
+                target_container, c_int_path = target_container.split(":", 1)
+            target_path, _ = docker_client.resolve_container_perimeter(target_container, c_int_path)
+            console.print(f"      [bold green]✔ Container perimeter bound to:[/bold green] [bold bright_white]{target_path}[/bold bright_white]\n")
+        elif is_docker_available and target_str != "." and not Path(target_str).exists():
+            try:
+                c_info = docker_client.get_container_info(target_str)
+                target_container = target_str
+                c_env_vars = dict(e.split("=", 1) for e in c_info.get("Config", {}).get("Env", []) if "=" in e)
+                c_user = c_info.get("Config", {}).get("User", "")
+                c_int_path = c_env_vars.get("HOME") or (f"/home/{c_user}" if (c_user and c_user != "root") else "/root")
+                target_path, _ = docker_client.resolve_container_perimeter(target_container, c_int_path)
+                console.print(f"      [bold green]✔ Detected Docker container '{target_container}' bound to:[/bold green] [bold bright_white]{target_path}[/bold bright_white]\n")
+            except Exception:
+                target_path = Path(target_str).resolve()
+                console.print(f"      [bold green]✔ Perimeter bound to:[/bold green] [bold bright_white]{target_path}[/bold bright_white]\n")
+        else:
+            target_path = Path(target_str).resolve()
+            console.print(f"      [bold green]✔ Perimeter bound to:[/bold green] [bold bright_white]{target_path}[/bold bright_white]\n")
+
+    # Destination CBOM Artifact Path (Default: Container Home Directory)
+    default_out = str(Path.home() / "cbom.json")
+    if output:
+        output_path = Path(output).expanduser().resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+    elif yes:
+        output_path = Path(default_out).resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        console.print("  [bold cyan]1.2 Destination CBOM Artifact[/bold cyan]")
+        output_str = Prompt.ask(
+            "      [dim]↳ Enter output JSON filename[/dim]",
+            default=default_out,
+            show_default=False,
+        )
+        output_path = Path(output_str).expanduser().resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
     console.print(f"      [bold green]✔ Output target designated:[/bold green] [bold bright_white]{output_path}[/bold bright_white]")
 
-    # --- STEP 2: Source Code Exclusions & Options ---
-    _render_step_card(
-        2, 4,
-        "Source Exclusions & Perimeter Filters",
-        "Configure directories to bypass during AST tree-walking and ripgrep token filtering.",
-        "🛡️",
-    )
+    # --- STEP 2 & 3: Exclusions and Scanner Matrix ---
     default_excludes = ".git, node_modules, vendor, target, dist, build, .venv, venv, __pycache__"
-    console.print("  [bold cyan]2.1 Directory Exclusions[/bold cyan] [dim](comma-separated)[/dim]")
-    exclude_input = Prompt.ask(
-        "      [dim]↳ Excluded folders[/dim]",
-        default=default_excludes,
-    )
-    excluded_dirs = [d.strip() for d in exclude_input.split(",") if d.strip()]
-    preview_excludes = "  ".join([f"[dim on grey23] {d} [/dim on grey23]" for d in excluded_dirs[:8]])
-    if len(excluded_dirs) > 8:
-        preview_excludes += f"  [dim]+{len(excluded_dirs) - 8} more[/dim]"
-    console.print(f"      [bold green]✔ Filters active ({len(excluded_dirs)}):[/bold green] {preview_excludes}")
-
-    # --- STEP 3: Scanner Modules Configuration ---
-    _render_step_card(
-        3, 4,
-        "Reconnaissance Scanner Matrix",
-        "Enable or disable individual inspection modules across discovery domains.",
-        "⚙️",
-    )
-
-    console.print("  [bold underline bright_cyan]Domain 1: Source Code & Call-Graph Inspection[/bold underline bright_cyan]")
-    scan_source = Confirm.ask("    [bright_white]• Scan codebase source files (AST & Token Analysis)[/bright_white]", default=True)
-    scan_deps = Confirm.ask("    [bright_white]• Scan Dependency manifests (SBOM & lockfiles)[/bright_white]", default=False)
-
-    console.print("\n  [bold underline yellow]Domain 2: Cryptographic Artifacts & Binaries[/bold underline yellow]")
-    scan_certs = Confirm.ask("    [bright_white]• Scan X.509 Certificates & Private Keys (.pem, .crt, .key)[/bright_white]", default=True)
-    scan_docker = Confirm.ask("    [bright_white]• Scan Docker container files (Dockerfile, Compose)[/bright_white]", default=True)
-    scan_binaries = Confirm.ask("    [bright_white]• Scan Binary executables & shared libraries (.so, .dll, ELF)[/bright_white]", default=True)
-    scan_runtime_artifacts = Confirm.ask("    [bright_white]• Scan Active process memory & dynamic runtime packages[/bright_white]", default=False)
-    enable_artifacts = scan_certs or scan_docker or scan_binaries or scan_runtime_artifacts
-
-    console.print("\n  [bold underline magenta]Domain 3: Infrastructure & Cloud Key Management[/bold underline magenta]")
-    scan_terraform = Confirm.ask("    [bright_white]• Scan Terraform / IaC configurations (.tf, CloudFormation)[/bright_white]", default=True)
-    scan_cloud_hsm = Confirm.ask("    [bright_white]• Scan Cloud KMS / HSM configurations (AWS/Azure)[/bright_white]", default=True)
-    enable_infra = scan_terraform or scan_cloud_hsm
-
-    console.print("\n  [bold underline blue]Domain 4: Network Protocols & TLS Perimeter[/bold underline blue]")
-    enable_network = Confirm.ask("    [bright_white]• Scan live remote TLS endpoints & web servers?[/bright_white]", default=True)
-    endpoints: List[str] = []
-    if enable_network:
-        endpoints_input = Prompt.ask(
-            "      [dim]↳ Enter domain endpoints (comma-separated, e.g., example.com:443)[/dim]",
-            default="",
+    if yes:
+        excluded_dirs = [d.strip() for d in default_excludes.split(",") if d.strip()]
+        scan_source = True
+        scan_deps = True
+        scan_certs = True
+        scan_docker = True
+        scan_binaries = True
+        scan_runtime_artifacts = False
+        enable_artifacts = True
+        scan_terraform = True
+        scan_cloud_hsm = True
+        enable_infra = True
+        enable_network = False
+        endpoints = []
+    else:
+        _render_step_card(
+            2, 4,
+            "Source Exclusions & Perimeter Filters",
+            "Configure directories to bypass during AST tree-walking and ripgrep token filtering.",
+            "🛡️",
         )
-        endpoints = [e.strip() for e in endpoints_input.split(",") if e.strip()]
-        console.print(f"      [bold green]✔ Registered {len(endpoints)} endpoint(s).[/bold green]")
+        console.print("  [bold cyan]2.1 Directory Exclusions[/bold cyan] [dim](comma-separated)[/dim]")
+        exclude_input = Prompt.ask(
+            "      [dim]↳ Excluded folders[/dim]",
+            default=default_excludes,
+        )
+        excluded_dirs = [d.strip() for d in exclude_input.split(",") if d.strip()]
+        preview_excludes = "  ".join([f"[dim on grey23] {d} [/dim on grey23]" for d in excluded_dirs[:8]])
+        if len(excluded_dirs) > 8:
+            preview_excludes += f"  [dim]+{len(excluded_dirs) - 8} more[/dim]"
+        console.print(f"      [bold green]✔ Filters active ({len(excluded_dirs)}):[/bold green] {preview_excludes}")
+
+        _render_step_card(
+            3, 4,
+            "Reconnaissance Scanner Matrix",
+            "Enable or disable individual inspection modules across discovery domains.",
+            "⚙️",
+        )
+
+        console.print("  [bold underline bright_cyan]Domain 1: Source Code & Call-Graph Inspection[/bold underline bright_cyan]")
+        scan_source = Confirm.ask("    [bright_white]• Scan codebase source files (AST & Token Analysis)[/bright_white]", default=True)
+        scan_deps = Confirm.ask("    [bright_white]• Scan Dependency manifests (SBOM & lockfiles)[/bright_white]", default=False)
+
+        console.print("\n  [bold underline yellow]Domain 2: Cryptographic Artifacts & Binaries[/bold underline yellow]")
+        scan_certs = Confirm.ask("    [bright_white]• Scan X.509 Certificates & Private Keys (.pem, .crt, .key)[/bright_white]", default=True)
+        scan_docker = Confirm.ask("    [bright_white]• Scan Docker container files (Dockerfile, Compose)[/bright_white]", default=True)
+        scan_binaries = Confirm.ask("    [bright_white]• Scan Binary executables & shared libraries (.so, .dll, ELF)[/bright_white]", default=True)
+        scan_runtime_artifacts = Confirm.ask("    [bright_white]• Scan Active process memory & dynamic runtime packages[/bright_white]", default=False)
+        enable_artifacts = scan_certs or scan_docker or scan_binaries or scan_runtime_artifacts
+
+        console.print("\n  [bold underline magenta]Domain 3: Infrastructure & Cloud Key Management[/bold underline magenta]")
+        scan_terraform = Confirm.ask("    [bright_white]• Scan Terraform / IaC configurations (.tf, CloudFormation)[/bright_white]", default=True)
+        scan_cloud_hsm = Confirm.ask("    [bright_white]• Scan Cloud KMS / HSM configurations (AWS/Azure)[/bright_white]", default=True)
+        enable_infra = scan_terraform or scan_cloud_hsm
+
+        console.print("\n  [bold underline blue]Domain 4: Network Protocols & TLS Perimeter[/bold underline blue]")
+        enable_network = Confirm.ask("    [bright_white]• Scan live remote TLS endpoints & web servers?[/bright_white]", default=True)
+        endpoints = []
+        if enable_network:
+            endpoints_input = Prompt.ask(
+                "      [dim]↳ Enter domain endpoints (comma-separated, e.g., example.com:443)[/dim]",
+                default="",
+            )
+            endpoints = [e.strip() for e in endpoints_input.split(",") if e.strip()]
+            console.print(f"      [bold green]✔ Registered {len(endpoints)} endpoint(s).[/bold green]")
 
     # --- Pre-Flight Summary Manifest ---
     preflight_data = {
@@ -343,6 +471,7 @@ def scan(
     config = ScanConfig(
         scan_targets=ScanTargets(
             project_root=str(target_path),
+            container_target=target_container,
             domains=endpoints,
             nginx_config_paths=[],
         ),
