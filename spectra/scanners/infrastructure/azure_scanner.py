@@ -72,10 +72,33 @@ class AzureScanner:
 
         findings: List[AzureFinding] = []
         try:
-            credential = DefaultAzureCredential()
-            # If subscription_id is not explicitly provided, KeyVaultManagementClient 
-            # can iterate subscriptions or default to the active CLI subscription context.
-            mgmt_client = KeyVaultManagementClient(credential, subscription_id=self.subscription_id or "default-sub")
+            import os, subprocess, shutil
+            from azure.identity import AzureCliCredential
+
+            # Resolve credential (prefer AzureCliCredential if CLI is logged in)
+            credential = None
+            try:
+                cli_cred = AzureCliCredential()
+                cli_cred.get_token("https://management.azure.com/.default")
+                credential = cli_cred
+            except Exception:
+                credential = DefaultAzureCredential()
+
+            # Resolve active subscription ID
+            sub_id = self.subscription_id or os.environ.get("AZURE_SUBSCRIPTION_ID")
+            if not sub_id:
+                try:
+                    az_bin = shutil.which("az") or "az"
+                    res = subprocess.run([az_bin, "account", "show", "--query", "id", "-o", "tsv"], capture_output=True, text=True, timeout=5, shell=True)
+                    if res.returncode == 0 and res.stdout.strip():
+                        sub_id = res.stdout.strip()
+                except Exception:
+                    pass
+
+            if not sub_id:
+                return []
+
+            mgmt_client = KeyVaultManagementClient(credential, subscription_id=sub_id)
             
             # List all Key Vaults in the subscription/tenant
             vaults = mgmt_client.vaults.list()
@@ -85,26 +108,38 @@ class AzureScanner:
                 resource_group = vault.id.split("/")[4] if vault.id else "unknown"
 
                 # Scan Keys and Certificates inside the Key Vault
-                findings.extend(self._scan_vault_keys(vault_uri, vault_name, resource_group))
-                findings.extend(self._scan_vault_certificates(vault_uri, vault_name, resource_group))
+                findings.extend(self._scan_vault_keys(vault_uri, vault_name, resource_group, credential=credential))
+                findings.extend(self._scan_vault_certificates(vault_uri, vault_name, resource_group, credential=credential))
 
         except Exception:
             pass
 
         return findings
 
-    def _scan_vault_keys(self, vault_uri: str, vault_name: str, resource_group: str) -> List[AzureFinding]:
+    def _scan_vault_keys(self, vault_uri: str, vault_name: str, resource_group: str, credential: Optional[Any] = None) -> List[AzureFinding]:
         findings: List[AzureFinding] = []
         try:
-            credential = DefaultAzureCredential()
-            key_client = KeyClient(vault_url=vault_uri, credential=credential)
+            cred = credential or DefaultAzureCredential()
+            key_client = KeyClient(vault_url=vault_uri, credential=cred)
             
             for key_properties in key_client.list_properties_of_keys():
                 key_name = key_properties.name
                 key_obj = key_client.get_key(key_name)
                 
                 k_type = str(key_obj.key_type).upper()
-                k_size = key_obj.properties.key_size
+                k_size = None
+                jwk = getattr(key_obj, "key", None)
+                if jwk:
+                    if "RSA" in k_type and getattr(jwk, "n", None):
+                        k_size = len(jwk.n) * 8
+                    elif "EC" in k_type:
+                        crv_str = str(getattr(jwk, "crv", ""))
+                        if "384" in crv_str:
+                            k_size = 384
+                        elif "521" in crv_str:
+                            k_size = 521
+                        else:
+                            k_size = 256
 
                 algo = "AES-GCM"
                 quantum_safe = True
@@ -142,11 +177,11 @@ class AzureScanner:
             pass
         return findings
 
-    def _scan_vault_certificates(self, vault_uri: str, vault_name: str, resource_group: str) -> List[AzureFinding]:
+    def _scan_vault_certificates(self, vault_uri: str, vault_name: str, resource_group: str, credential: Optional[Any] = None) -> List[AzureFinding]:
         findings: List[AzureFinding] = []
         try:
-            credential = DefaultAzureCredential()
-            cert_client = CertificateClient(vault_url=vault_uri, credential=credential)
+            cred = credential or DefaultAzureCredential()
+            cert_client = CertificateClient(vault_url=vault_uri, credential=cred)
 
             for cert_properties in cert_client.list_properties_of_certificates():
                 cert_name = cert_properties.name

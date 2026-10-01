@@ -91,8 +91,19 @@ class InfrastructureScanOrchestrator:
             else:
                 aws_findings: List[AWSFinding] = self.aws_scanner.scan()
                 log_info(f"Discovered {len(aws_findings)} cryptographic asset(s) in AWS.")
-                for f in aws_findings:
+                for idx, f in enumerate(aws_findings, 1):
                     all_findings.append(f.to_dict())
+                    if progress_callback:
+                        progress_callback(
+                            f"Domain 3/4: Cloud KMS Key [{f.algorithm}] {f.resource_id[:16]}",
+                            81.0,
+                            item_info={
+                                "seq": f"{idx}/{len(aws_findings)}",
+                                "type": "cloud",
+                                "filename": f"AWS KMS: {f.resource_id[:16]}...",
+                                "location": f"{f.region} ({f.algorithm}-{f.key_size or ''})",
+                            }
+                        )
 
         # 5. Scan Azure Cloud Resources (Key Vault Keys & Certificates if enabled)
         azure_cfg = getattr(self.config, "azure", None)
@@ -107,7 +118,18 @@ class InfrastructureScanOrchestrator:
             else:
                 azure_findings: List[AzureFinding] = self.azure_scanner.scan()
                 log_info(f"Discovered {len(azure_findings)} cryptographic asset(s) in Azure.")
-                for f in azure_findings:
+                for idx, f in enumerate(azure_findings, 1):
                     all_findings.append(f.to_dict())
+                    if progress_callback:
+                        progress_callback(
+                            f"Domain 3/4: Cloud Key Vault [{f.algorithm}] {f.resource_id}",
+                            83.0,
+                            item_info={
+                                "seq": f"{idx}/{len(azure_findings)}",
+                                "type": "cloud",
+                                "filename": f"Azure KV: {f.resource_id}",
+                                "location": f"{f.vault_name} ({f.algorithm}-{f.key_size or ''})",
+                            }
+                        )
 
         return all_findings

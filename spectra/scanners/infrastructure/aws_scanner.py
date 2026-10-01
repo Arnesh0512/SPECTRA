@@ -57,7 +57,21 @@ class AWSScanner:
     """Discovers cryptographic configurations across AWS services."""
 
     def __init__(self, regions: Optional[List[str]] = None):
-        self.regions = regions or ["us-east-1"]
+        detected_regions: List[str] = list(regions) if regions else []
+        if BOTO3_AVAILABLE:
+            try:
+                sess_region = boto3.Session().region_name
+                if sess_region and sess_region not in detected_regions:
+                    detected_regions.insert(0, sess_region)
+            except Exception:
+                pass
+        import os
+        env_reg = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")
+        if env_reg and env_reg not in detected_regions:
+            detected_regions.insert(0, env_reg)
+        if not detected_regions:
+            detected_regions.append("us-east-1")
+        self.regions = detected_regions
 
     def is_available(self) -> bool:
         """Returns True if boto3 is installed."""
