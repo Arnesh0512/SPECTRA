@@ -64,22 +64,38 @@ class DependencyScanner:
         except Exception:
             return []
 
-    def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None, scanners_map: Optional[Dict[str, Any]] = None) -> List[SourceFinding]:
+    def scan_directory(
+        self,
+        target_dir: Path,
+        excluded_dirs: Optional[List[str]] = None,
+        scanners_map: Optional[Dict[str, Any]] = None,
+        progress_callback: Optional[Callable[[str, float], None]] = None,
+    ) -> List[SourceFinding]:
         """Walks target directory for manifest files, extracts crypto dependencies, and runs disk analysis."""
+        import os
+        import time
+
         findings: List[SourceFinding] = []
         excluded = set(excluded_dirs or [])
 
-        for file_path in target_dir.rglob("*"):
-            if not file_path.is_file():
-                continue
-            if any(part in excluded for part in file_path.parts):
-                continue
+        # Phase 1: Rapidly locate all manifest files safely using os.walk
+        manifest_files: List[Path] = []
+        try:
+            for root, dirs, files in os.walk(str(target_dir)):
+                dirs[:] = [
+                    d for d in dirs 
+                    if d not in excluded and not any(part in excluded for part in Path(root, d).parts)
+                ]
+                for file_name in files:
+                    name = file_name.lower()
+                    if name in MANIFEST_NAMES or (name.startswith("requirements-") and name.endswith(".txt")):
+                        manifest_files.append(Path(root) / file_name)
+        except Exception:
+            pass
 
-            name = file_path.name.lower()
-            is_manifest = name in MANIFEST_NAMES or (name.startswith("requirements-") and name.endswith(".txt"))
-            if not is_manifest:
-                continue
-
+        # Phase 2: Parse manifests and collect candidate crypto dependencies
+        candidate_deps: List[Tuple[Path, str, Dict[str, Any]]] = []
+        for file_path in manifest_files:
             configuration = self._parser_for(file_path)
             if not configuration:
                 continue
@@ -87,28 +103,62 @@ class DependencyScanner:
             ecosystem, parser = configuration
             try:
                 text = file_path.read_text(encoding="utf-8", errors="replace")
-                observations = parser(file_path, text)
+                observations = list(parser(file_path, text))
             except Exception:
                 continue
 
             for raw in observations:
-                pkg_name = raw["name"]
+                pkg_name = raw.get("name")
                 if pkg_name and self._is_crypto_capable(pkg_name, ecosystem):
-                    finding = self._build_finding(raw, ecosystem, target_dir, file_path)
-                    findings.append(finding)
+                    candidate_deps.append((file_path, ecosystem, raw))
 
-                    if scanners_map:
-                        analysis_results = self.analyzer.analyze_dependency(pkg_name, ecosystem, target_dir, scanners_map)
-                        for res in analysis_results:
-                            findings.append(self._build_analysis_finding(res, target_dir, file_path))
+        total_deps = len(candidate_deps)
+        if total_deps == 0:
+            if progress_callback:
+                progress_callback("Domain 1/4: Analyzing Dependencies (0 crypto packages declared)", 12.0)
+            return findings
+
+        # Phase 3: Scan, analyze, and report each candidate dependency
+        # Pacing ensures each module is visibly displayed in the Rich progress bar
+        sleep_budget = min(0.04, max(0.01, 1.2 / total_deps))
+        start_pct = 5.0
+        end_pct = 12.0
+
+        analyzed_packages: Set[Tuple[str, str]] = set()
+
+        for idx, (file_path, ecosystem, raw) in enumerate(candidate_deps, start=1):
+            t_start = time.time()
+            pkg_name = str(raw["name"])
+            pct = start_pct + (idx / total_deps) * (end_pct - start_pct)
+
+            # High-visibility progress report showing exact language/ecosystem and module name
+            # e.g.: Domain 1/4: Dependency (1/43) [python] cryptography
+            desc = f"Domain 1/4: Dependency ({idx}/{total_deps}) [{ecosystem}] {pkg_name}"
+            if progress_callback:
+                progress_callback(desc, pct)
+
+            finding = self._build_finding(raw, ecosystem, target_dir, file_path)
+            findings.append(finding)
+
+            pkg_key = (ecosystem, pkg_name.lower())
+            if scanners_map and pkg_key not in analyzed_packages:
+                analyzed_packages.add(pkg_key)
+                analysis_results = self.analyzer.analyze_dependency(pkg_name, ecosystem, target_dir, scanners_map)
+                for res in analysis_results:
+                    findings.append(self._build_analysis_finding(res, target_dir, file_path, ecosystem=ecosystem))
+
+            # Maintain animation fidelity so user can see each language and module
+            elapsed = time.time() - t_start
+            if elapsed < sleep_budget:
+                time.sleep(sleep_budget - elapsed)
 
         return findings
 
-    def _build_analysis_finding(self, res: Dict[str, Any], root: Path, file: Path) -> SourceFinding:
+    def _build_analysis_finding(self, res: Dict[str, Any], root: Path, file: Path, ecosystem: str = "dependency") -> SourceFinding:
         """Constructs an enriched finding with internal encryption and call graph metrics (Step 4)."""
         return SourceFinding(
             source_domain="source_code",
-            language="dependency_analysis",
+            language=ecosystem,
             file_path=str(file.resolve()),
             line_number=res.get("line_number", 1),
             column_number=1,
@@ -125,7 +175,10 @@ class DependencyScanner:
             security_findings=[],
             raw_metadata={
                 "finding_type": "dependency_function_analysis",
+                "language": ecosystem,
+                "ecosystem": ecosystem,
                 "module_name": res["module_name"],
+                "package": res["module_name"],
                 "function_called": res["function_called"],
                 "encryption_internally": res["encryption_internally"],
                 "codebase_caller": res["codebase_caller"],
@@ -142,8 +195,10 @@ class DependencyScanner:
 
         metadata: Dict[str, Any] = {
             "finding_type": "crypto_capable_dependency",
+            "language": ecosystem,
             "ecosystem": ecosystem,
             "package": pkg_name,
+            "module_name": pkg_name,
             "dependency_relationship": raw.get("relationship", "direct"),
             "operation": "dependency_declaration",
         }
@@ -156,7 +211,7 @@ class DependencyScanner:
             file_path=str(file.resolve()),
             line_number=line_num,
             column_number=1,
-            code_snippet=f"{pkg_name} ({version or 'any'}) [{raw.get('relationship', 'direct')}]",
+            code_snippet=f"[{ecosystem}] {pkg_name} ({version or 'any'}) [{raw.get('relationship', 'direct')}]",
             primitive="key_management",
             algorithm=pkg_name,
             key_size=None,
@@ -204,15 +259,20 @@ class DependencyScanner:
         if name == "pom.xml":
             return "java", self._parse_pom
         if name in {"build.gradle", "build.gradle.kts"}:
-            return "java", self._parse_gradle
+            ecosystem = "kotlin" if name.endswith(".kts") else "java"
+            return ecosystem, self._parse_gradle
         if name == "gradle.lockfile":
-            return "java", lambda f, t: self._parse_gradle(f, t, "unknown")
+            ecosystem = "kotlin" if (file.parent / "build.gradle.kts").exists() else "java"
+            return ecosystem, lambda f, t: self._parse_gradle(f, t, "unknown")
         if name == "package.json":
-            return "javascript", self._parse_package_json
+            ecosystem = "typescript" if (file.parent / "tsconfig.json").exists() else "javascript"
+            return ecosystem, self._parse_package_json
         if name == "package-lock.json":
-            return "javascript", self._parse_package_lock
+            ecosystem = "typescript" if (file.parent / "tsconfig.json").exists() else "javascript"
+            return ecosystem, self._parse_package_lock
         if name in {"yarn.lock", "pnpm-lock.yaml"}:
-            return "javascript", self._parse_yarn_or_pnpm
+            ecosystem = "typescript" if (file.parent / "tsconfig.json").exists() else "javascript"
+            return ecosystem, self._parse_yarn_or_pnpm
         if name == "go.mod":
             return "go", self._parse_go_mod
         if name == "go.sum":

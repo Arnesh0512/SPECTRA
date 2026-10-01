@@ -106,7 +106,10 @@ def count_codebase_loc(target_dir: Optional[Any], excluded_dirs: Optional[List[s
         return 10000
     
     target_path = Path(target_dir)
-    if not target_path.exists():
+    try:
+        if not target_path.exists():
+            return 10000
+    except (PermissionError, OSError):
         return 10000
 
     excluded = set(excluded_dirs or [
@@ -179,7 +182,10 @@ class MoscaRiskEngine:
             return None
 
         target_path = Path(target_dir)
-        if not target_path.exists():
+        try:
+            if not target_path.exists():
+                return None
+        except (PermissionError, OSError):
             return None
 
         search_terms = list(self.shelf_life_categories.keys()) + ["shelf_life", "data_classification", "classification"]

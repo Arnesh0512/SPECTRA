@@ -68,7 +68,13 @@ class MasterScanner:
         :return: Consolidated ScanResults instance.
         """
         results = ScanResults()
-        resolved_dir = target_dir.resolve() if target_dir and target_dir.exists() else None
+        resolved_dir = None
+        if target_dir:
+            try:
+                if target_dir.exists():
+                    resolved_dir = target_dir.resolve()
+            except (PermissionError, OSError):
+                resolved_dir = None
 
         log_header("Executing Multi-Domain Cryptographic Reconnaissance")
 
@@ -86,9 +92,17 @@ class MasterScanner:
                 dep_findings = self.source_orchestrator.dependency_scanner.scan_directory(
                     resolved_dir, 
                     excluded_dirs=excluded, 
-                    scanners_map=self.source_orchestrator.ecosystem_to_scanner
+                    scanners_map=self.source_orchestrator.ecosystem_to_scanner,
+                    progress_callback=progress_callback
                 )
-                log_info(f"Discovered {len(dep_findings)} crypto dependency declaration(s) and function mappings.")
+                dep_decls = [f for f in dep_findings if f.raw_metadata.get("finding_type") == "crypto_capable_dependency"]
+                dep_funcs = [f for f in dep_findings if f.raw_metadata.get("finding_type") == "dependency_function_analysis"]
+                unique_pkgs = len(set(f.raw_metadata.get("package", "") for f in dep_decls))
+                
+                if dep_funcs:
+                    log_info(f"Discovered {len(dep_decls)} crypto dependency declaration(s) across manifests ({unique_pkgs} unique packages) and {len(dep_funcs)} internal function mapping(s).")
+                else:
+                    log_info(f"Discovered {len(dep_decls)} crypto dependency declaration(s) across manifests ({unique_pkgs} unique packages).")
                 all_source_raw.extend(dep_findings)
 
             if progress_callback:
@@ -100,14 +114,21 @@ class MasterScanner:
 
             total_candidates = len(candidate_files)
             for idx, file_path in enumerate(candidate_files, start=1):
+                main_lang = self.source_orchestrator.detect_module_main_language(file_path, resolved_dir)
                 ext = file_path.suffix.lower()
                 scanner = self.source_orchestrator.ext_to_scanner.get(ext)
                 if scanner:
                     findings = scanner.parse_file(file_path)
+                    for f in findings:
+                        f.language = main_lang
+                        if hasattr(f, "raw_metadata") and isinstance(f.raw_metadata, dict):
+                            f.raw_metadata["module_language"] = main_lang
+                            f.raw_metadata["language"] = main_lang
                     all_source_raw.extend(findings)
                 if progress_callback and total_candidates > 0:
                     pct = 12.0 + (idx / total_candidates) * 28.0
-                    progress_callback(f"Domain 1/4: AST Parsing ({idx}/{total_candidates}) {file_path.name}", pct)
+                    desc = f"Domain 1/4: AST Parsing ({idx}/{total_candidates}) [{main_lang}] {file_path.name}"
+                    progress_callback(desc, pct)
 
             results.source_findings = [f.to_dict() for f in all_source_raw]
             log_info(f"Source scan completed: {len(results.source_findings)} findings.")

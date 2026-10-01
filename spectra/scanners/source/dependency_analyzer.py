@@ -75,70 +75,79 @@ class DependencyAnalyzer:
         scanner = scanners_map.get(ecosystem)
         internal_findings = []
         
+        # Limit library file exploration to prevent scanning massive vendor test suites
+        scanned_count = 0
         if scanner:
-            for file_path in lib_path.rglob("*"):
-                if file_path.is_file() and file_path.suffix.lower() in scanner.supported_extensions():
-                    try:
-                        findings = scanner.parse_file(file_path)
-                        internal_findings.extend(findings)
-                    except Exception:
-                        continue
+            import os
+            try:
+                for root, _, files in os.walk(str(lib_path)):
+                    if scanned_count >= 40:
+                        break
+                    for f in files:
+                        p = Path(root) / f
+                        if p.suffix.lower() in scanner.supported_extensions():
+                            try:
+                                findings = scanner.parse_file(p)
+                                internal_findings.extend(findings)
+                                scanned_count += 1
+                                if scanned_count >= 40:
+                                    break
+                            except Exception:
+                                continue
+            except Exception:
+                pass
 
+        # Deduplicate discovered functions so each unique crypto primitive is evaluated only once
+        seen_funcs: Set[str] = set()
+        unique_findings = []
         for finding in internal_findings:
-            func_called = finding.algorithm or finding.primitive
-            codebase_callers = []
-            direct_calls = 0
-            transitive_calls = 0
-            call_depth = 0
+            func = finding.algorithm or finding.primitive
+            if func and func not in seen_funcs:
+                seen_funcs.add(func)
+                unique_findings.append((func, finding))
 
-            if command_exists("rg"):
-                # Construct precise code-level signature search tokens rather than raw package names
-                # e.g. looking for requests.get, requests.post, or function names directly
-                base_pkg = package_name.split("/")[-1]
-                signatures = [
-                    f"{base_pkg}.",          # matches package attribute calls like requests.get()
-                    f"{func_called}",        # matches function name directly
-                ]
+        base_pkg = package_name.split("/")[-1]
 
-                seen_matches = set()
-                for sig in signatures:
-                    if len(sig) < 2:
-                        continue
-                    cmd = ["rg", "-w", "--no-heading", "--line-number", sig, str(project_root)]
-                    code, stdout, _ = run_command(cmd)
-                    if code in (0, 1) and stdout:
-                        for line in stdout.splitlines():
-                            # Robust handling for Windows drive letters (e.g. C:\path:line:content)
-                            if len(line) > 2 and line[1] == ':' and line[2] in ('\\', '/'):
-                                parts = line[2:].split(":", 1)
-                                matched_file = line[0] + ":" + parts[0] if parts else line
-                            else:
-                                parts = line.split(":", 1)
-                                matched_file = parts[0] if parts else line
+        def _get_callers_for_sig(sig: str) -> Set[str]:
+            if not command_exists("rg") or len(sig) < 2:
+                return set()
+            cmd = ["rg", "-w", "--no-heading", "--line-number", sig, str(project_root)]
+            code, stdout, _ = run_command(cmd)
+            callers: Set[str] = set()
+            if code in (0, 1) and stdout:
+                for line in stdout.splitlines():
+                    if len(line) > 2 and line[1] == ':' and line[2] in ('\\', '/'):
+                        parts = line[2:].split(":", 1)
+                        matched_file = line[0] + ":" + parts[0] if parts else line
+                    else:
+                        parts = line.split(":", 1)
+                        matched_file = parts[0] if parts else line
 
-                            caller_path = Path(matched_file.strip())
-                            
-                            # Strict Filtering: Must be an actual source file (not manifest files like requirements.txt)
-                            is_manifest = caller_path.name.lower() in {
-                                "requirements.txt", "constraints.txt", "pyproject.toml", 
-                                "package.json", "go.mod", "cargo.toml", "pom.xml"
-                            }
+                    caller_path = Path(matched_file.strip())
+                    is_manifest = caller_path.name.lower() in {
+                        "requirements.txt", "constraints.txt", "pyproject.toml", 
+                        "package.json", "go.mod", "cargo.toml", "pom.xml"
+                    }
+                    if caller_path.is_file() and not is_manifest and not str(caller_path.resolve()).startswith(str(lib_path.resolve())):
+                        callers.add(str(caller_path.resolve()))
+            return callers
 
-                            if caller_path.is_file() and not is_manifest and not str(caller_path.resolve()).startswith(str(lib_path.resolve())):
-                                resolved_str = str(caller_path.resolve())
-                                if resolved_str not in seen_matches:
-                                    seen_matches.add(resolved_str)
-                                    codebase_callers.append(resolved_str)
+        # Pre-resolve callers for the base package prefix once
+        base_pkg_callers = _get_callers_for_sig(f"{base_pkg}.")
 
-                direct_calls = len(codebase_callers)
-                transitive_calls = int(direct_calls * 1.5)
-                call_depth = min(3, direct_calls)
+        for func_called, finding in unique_findings:
+            func_callers = _get_callers_for_sig(func_called)
+            all_callers = base_pkg_callers | func_callers
+
+            direct_calls = len(all_callers)
+            transitive_calls = int(direct_calls * 1.5)
+            call_depth = min(3, direct_calls)
 
             results.append({
                 "module_name": package_name,
                 "function_called": func_called,
                 "encryption_internally": finding.algorithm,
-                "codebase_caller": codebase_callers[0] if codebase_callers else "Unreferenced / External Declaration",
+                "codebase_caller": sorted(list(all_callers))[0] if all_callers else "Unreferenced / External Declaration",
                 "direct_calls": direct_calls,
                 "indirect_calls": transitive_calls,
                 "call_depth": call_depth,

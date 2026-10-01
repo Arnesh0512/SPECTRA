@@ -345,6 +345,12 @@ def scan(
         prompt_label = "      [dim]↳ Enter directory path or container name[/dim]" if is_docker_available else "      [dim]↳ Enter directory path[/dim]"
         target_str = path if (path and yes) else Prompt.ask(prompt_label, default=".", show_default=False)
 
+        def _path_does_not_exist(p_str: str) -> bool:
+            try:
+                return not Path(p_str).exists()
+            except (PermissionError, OSError):
+                return False
+
         if is_docker_available and (target_str.startswith("container:") or target_str.startswith("docker:")):
             target_container = target_str.split(":", 1)[1]
             c_int_path = None
@@ -352,7 +358,7 @@ def scan(
                 target_container, c_int_path = target_container.split(":", 1)
             target_path, _ = docker_client.resolve_container_perimeter(target_container, c_int_path)
             console.print(f"      [bold green]✔ Container perimeter bound to:[/bold green] [bold bright_white]{target_path}[/bold bright_white]\n")
-        elif is_docker_available and target_str != "." and not Path(target_str).exists():
+        elif is_docker_available and target_str != "." and _path_does_not_exist(target_str):
             try:
                 c_info = docker_client.get_container_info(target_str)
                 target_container = target_str
@@ -366,6 +372,17 @@ def scan(
                 console.print(f"      [bold green]✔ Perimeter bound to:[/bold green] [bold bright_white]{target_path}[/bold bright_white]\n")
         else:
             target_path = Path(target_str).resolve()
+            try:
+                if not target_path.exists():
+                    console.print(f"      [bold red]✖ Warning: Target path does not exist:[/bold red] [bright_white]{target_path}[/bright_white]\n")
+                elif target_path.is_dir():
+                    next(target_path.iterdir(), None)
+            except PermissionError:
+                console.print(f"\n      [bold red]✖ Permission denied accessing target directory:[/bold red] [bold bright_white]{target_path}[/bold bright_white]")
+                console.print("      [dim yellow]Cause: Current user or container user lacks read/execute permissions on this path.[/dim yellow]")
+                console.print("      [bold cyan]Solution:[/bold cyan] Add [bold bright_white]-u root[/bold bright_white] to your docker run command:\n")
+                console.print(f"      [bold green]docker run -it --rm -u root -p 3000:3000 -v /:/scan -v /mnt/c/Users/Arnesh/Desktop/:/output spectra scan[/bold green]\n")
+                raise typer.Exit(1)
             console.print(f"      [bold green]✔ Perimeter bound to:[/bold green] [bold bright_white]{target_path}[/bold bright_white]\n")
 
     # Destination CBOM Artifact Path (Default: Container Home Directory)
@@ -504,7 +521,10 @@ def scan(
 
     # --- Pre-resolve X completely outside active progress context ---
     from spectra.engine.mosca import MoscaRiskEngine
-    MoscaRiskEngine().get_resolved_shelf_life_x(target_path)
+    try:
+        MoscaRiskEngine().get_resolved_shelf_life_x(target_path)
+    except (PermissionError, OSError):
+        pass
 
     # --- STEP 4: Executing Multi-Domain Reconnaissance & CBOM Pipeline ---
     _render_step_card(
@@ -520,7 +540,7 @@ def scan(
     # Dynamic progress bar experience
     with Progress(
         SpinnerColumn("aesthetic", style="bold cyan"),
-        TextColumn("[bold bright_white]{task.description:<54}[/bold bright_white]"),
+        TextColumn("{task.description}"),
         BarColumn(bar_width=32, style="grey23", complete_style="bold cyan", finished_style="bold green"),
         TaskProgressColumn(text_format="[bold bright_cyan]{task.percentage:>3.0f}%[/bold bright_cyan]"),
         TimeElapsedColumn(),
@@ -530,7 +550,15 @@ def scan(
 
         def on_recon_progress(desc: str, pct: float) -> None:
             # stage_task reflects the current reconnaissance phase progress (0% -> 100%)
-            progress.update(stage_task, completed=pct, description=f"[bold white]{desc:<54}[/bold white]")
+            import re
+            padded = f"{desc:<62}"
+            # Style [language] tags in bold cyan with escaped brackets so Rich doesn't strip them
+            formatted_desc = re.sub(
+                r'\[([a-zA-Z0-9_\-\+]+)\]',
+                r'[bold cyan]\[\1][/bold cyan]',
+                padded
+            )
+            progress.update(stage_task, completed=pct, description=f"[bold white]{formatted_desc}[/bold white]")
 
         # 1. Multi-Domain Reconnaissance
         results: ScanResults = scanner.scan_all(

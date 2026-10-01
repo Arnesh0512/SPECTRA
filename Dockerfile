@@ -53,10 +53,12 @@ RUN pip install --no-cache-dir -e .
 # Expose web visualizer port
 EXPOSE 3000
 
-# Create non-root runner user and give access to /app and /opt/venv
+# Create runner user
 RUN useradd -u 10001 -m appuser && \
     chown -R appuser:appuser /app /opt/venv
-USER appuser
+
+# Run as root by default so spectra can scan mounted host filesystems without permission errors
+USER root
 
 ENTRYPOINT ["spectra"]
 CMD ["--help"]
