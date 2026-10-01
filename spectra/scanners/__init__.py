@@ -128,7 +128,20 @@ class MasterScanner:
                 if progress_callback and total_candidates > 0:
                     pct = 12.0 + (idx / total_candidates) * 28.0
                     desc = f"Domain 1/4: AST Parsing ({idx}/{total_candidates}) [{main_lang}] {file_path.name}"
-                    progress_callback(desc, pct)
+                    try:
+                        rel_loc = str(file_path.relative_to(resolved_dir)).replace("\\", "/") if resolved_dir else str(file_path).replace("\\", "/")
+                    except Exception:
+                        rel_loc = str(file_path).replace("\\", "/")
+                    progress_callback(
+                        desc,
+                        pct,
+                        item_info={
+                            "seq": f"{idx}/{total_candidates}",
+                            "type": "source code",
+                            "filename": file_path.name,
+                            "location": rel_loc,
+                        }
+                    )
 
             results.source_findings = [f.to_dict() for f in all_source_raw]
             log_info(f"Source scan completed: {len(results.source_findings)} findings.")

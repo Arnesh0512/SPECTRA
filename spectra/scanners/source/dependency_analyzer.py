@@ -5,10 +5,12 @@ Locates third-party package libraries on disk, scans their internal cryptographi
 and maps imported functions back to actual source code callers using precise function-level signatures.
 """
 
+import os
 from pathlib import Path
 import importlib.metadata
 import site
 import re
+import shutil
 from typing import Dict, List, Optional, Any, Set
 from spectra.utils.shell import command_exists, run_command
 from .base import SourceFinding
@@ -20,11 +22,47 @@ class DependencyAnalyzer:
     def __init__(self):
         pass
 
-    def locate_library_path(self, package_name: str, ecosystem: str, project_root: Path) -> Optional[Path]:
+    def locate_library_path(
+        self,
+        package_name: str,
+        ecosystem: str,
+        project_root: Path,
+        manifest_file: Optional[Path] = None,
+    ) -> Optional[Path]:
         """Step 2: Finds the exact installation path of a library on disk."""
         norm_name = package_name.lower().replace("_", "-")
-        
-        if ecosystem == "python":
+        manifest_dir = manifest_file.parent if manifest_file else project_root
+        search_dirs = [manifest_dir, project_root] if manifest_dir != project_root else [project_root]
+
+        if ecosystem in ["javascript", "typescript", "javascript_or_typescript"]:
+            for d in search_dirs:
+                node_mod = d / "node_modules" / package_name
+                if node_mod.is_dir():
+                    return node_mod
+
+        elif ecosystem == "python":
+            py_names = [package_name, package_name.replace("-", "_")]
+            if norm_name == "pycryptodome":
+                py_names.extend(["Crypto", "crypto"])
+            elif norm_name == "pyjwt":
+                py_names.extend(["jwt"])
+            elif norm_name == "pydantic":
+                py_names.extend(["pydantic"])
+
+            # 1. Check local virtual environments in subproject or root
+            for d in search_dirs:
+                for venv_name in [".venv", "venv", "env"]:
+                    venv_dir = d / venv_name
+                    if venv_dir.is_dir():
+                        for lib_sub in ["Lib/site-packages", "lib/site-packages", "lib"]:
+                            target_lib = venv_dir / lib_sub
+                            if target_lib.is_dir():
+                                for name in py_names:
+                                    cand = target_lib / name
+                                    if cand.exists():
+                                        return cand
+
+            # 2. Check active python environment site-packages
             try:
                 dist = importlib.metadata.distribution(package_name)
                 for path in dist.files or []:
@@ -34,24 +72,124 @@ class DependencyAnalyzer:
                             return full_path.parent
             except Exception:
                 pass
-            
+
             for sp in site.getsitepackages():
                 sp_path = Path(sp)
-                for candidate in [sp_path / package_name, sp_path / package_name.replace("-", "_")]:
-                    if candidate.is_dir():
-                        return candidate
-
-        elif ecosystem in ["javascript", "typescript", "javascript_or_typescript"]:
-            node_mod = project_root / "node_modules" / package_name
-            if node_mod.is_dir():
-                return node_mod
+                for name in py_names:
+                    cand = sp_path / name
+                    if cand.is_dir():
+                        return cand
 
         elif ecosystem == "go":
+            for d in search_dirs:
+                vendor_mod = d / "vendor" / package_name
+                if vendor_mod.is_dir():
+                    return vendor_mod
+
             gopath = Path.home() / "go" / "pkg" / "mod"
             if gopath.is_dir():
                 for mod_dir in gopath.glob(f"{package_name}@*"):
                     if mod_dir.is_dir():
                         return mod_dir
+
+        elif ecosystem in ["java", "kotlin", "jvm"]:
+            # e.g., org.bouncycastle:bcprov-jdk18on or com.google.crypto.tink:tink
+            parts = package_name.split(":")
+            if len(parts) == 2:
+                group, artifact = parts
+                rel = Path(group.replace(".", "/")) / artifact
+                m2_dir = Path.home() / ".m2" / "repository" / rel
+                if m2_dir.is_dir():
+                    jars = [j for j in m2_dir.rglob("*.jar") if not j.name.endswith("-sources.jar") and not j.name.endswith("-javadoc.jar")]
+                    if jars:
+                        return jars[0]
+                    return m2_dir
+            for d in search_dirs:
+                for sub in ["target", "build/libs", "lib", "libs"]:
+                    cand_dir = d / sub
+                    if cand_dir.is_dir():
+                        for f in cand_dir.rglob("*.jar"):
+                            if norm_name in f.name.lower():
+                                return f
+
+        elif ecosystem == "rust":
+            for d in search_dirs:
+                vendor_crate = d / "vendor" / package_name
+                if vendor_crate.is_dir():
+                    return vendor_crate
+                # Check target build artifacts (.rmeta / .rlib)
+                crate_norm = package_name.lower().replace("-", "_")
+                for profile in ["debug", "release"]:
+                    deps_dir = d / "target" / profile / "deps"
+                    if deps_dir.is_dir():
+                        rmetas = list(deps_dir.glob(f"lib{crate_norm}-*.rmeta"))
+                        if rmetas:
+                            return rmetas[0]
+                        rlibs = list(deps_dir.glob(f"lib{crate_norm}-*.rlib"))
+                        if rlibs:
+                            return rlibs[0]
+            cargo_reg = Path.home() / ".cargo" / "registry" / "src"
+            if cargo_reg.is_dir():
+                for m in cargo_reg.rglob(f"{package_name}-*"):
+                    if m.is_dir():
+                        return m
+
+        elif ecosystem in ["c", "cpp", "c++"]:
+            # 1. Local project vcpkg or conan
+            for d in search_dirs:
+                for sub in ["vcpkg_installed", "build/vcpkg_installed", "installed"]:
+                    vcpkg_inc = d / sub
+                    if vcpkg_inc.is_dir():
+                        for inc in vcpkg_inc.rglob(f"include/{package_name}"):
+                            if inc.is_dir():
+                                return inc
+                        for inc in vcpkg_inc.rglob("include"):
+                            if (inc / package_name).is_dir():
+                                return inc / package_name
+
+            # 2. Check CMake build cache
+            for d in search_dirs:
+                cmake_cache = d / "build" / "CMakeCache.txt"
+                if cmake_cache.is_file():
+                    try:
+                        content = cmake_cache.read_text(encoding="utf-8", errors="ignore")
+                        for line in content.splitlines():
+                            if f"{package_name.upper()}_INCLUDE_DIR:PATH=" in line or f"{norm_name.upper()}_INCLUDE_DIR:PATH=" in line:
+                                p = Path(line.split("=", 1)[1].strip())
+                                if p.exists():
+                                    return p
+                    except Exception:
+                        pass
+
+            # 3. Check system / known install locations (e.g. OpenSSL on Windows)
+            if norm_name == "openssl":
+                env_openssl = os.environ.get("OPENSSL_ROOT_DIR") or os.environ.get("OPENSSL_DIR")
+                if env_openssl and Path(env_openssl).exists():
+                    inc = Path(env_openssl) / "include" / "openssl"
+                    return inc if inc.is_dir() else Path(env_openssl)
+
+                which_openssl = shutil.which("openssl")
+                if which_openssl:
+                    bin_parent = Path(which_openssl).resolve().parent.parent
+                    inc = bin_parent / "include" / "openssl"
+                    if inc.is_dir():
+                        return inc
+                    if (bin_parent / "include").is_dir():
+                        return bin_parent / "include"
+
+                for prog_files in [os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"), "C:\\Program Files", "C:\\Program Files (x86)"]:
+                    if prog_files and Path(prog_files).is_dir():
+                        for ossl_cand in Path(prog_files).glob("*OpenSSL*"):
+                            inc = ossl_cand / "include" / "openssl"
+                            if inc.is_dir():
+                                return inc
+                            if (ossl_cand / "include").is_dir():
+                                return ossl_cand / "include"
+
+                for sys_root in [Path("C:/OpenSSL-Win64"), Path("C:/OpenSSL"), Path("C:/tools/openssl")]:
+                    inc = sys_root / "include" / "openssl"
+                    if inc.is_dir():
+                        return inc
 
         return None
 
@@ -60,14 +198,15 @@ class DependencyAnalyzer:
         package_name: str,
         ecosystem: str,
         project_root: Path,
-        scanners_map: Dict[str, Any]
+        scanners_map: Dict[str, Any],
+        manifest_file: Optional[Path] = None,
     ) -> List[Dict[str, Any]]:
         """
         Performs Steps 1-4: Locates library, scans internal encryption/crypto usage,
         and links actual code-level calls back to the codebase with direct/indirect call counts.
         """
         results: List[Dict[str, Any]] = []
-        lib_path = self.locate_library_path(package_name, ecosystem, project_root)
+        lib_path = self.locate_library_path(package_name, ecosystem, project_root, manifest_file=manifest_file)
         
         if not lib_path or not lib_path.exists():
             return results
@@ -75,9 +214,47 @@ class DependencyAnalyzer:
         scanner = scanners_map.get(ecosystem)
         internal_findings = []
         
+        # If library is a jar file, inspect contained classes for cryptographic primitives
+        if lib_path.is_file() and lib_path.suffix.lower() == ".jar":
+            import zipfile
+            try:
+                with zipfile.ZipFile(lib_path, "r") as zf:
+                    crypto_algs = [
+                        ("aes", "AES"), ("rsa", "RSA"), ("ecdsa", "ECDSA"), ("ecdh", "ECDH"),
+                        ("sha256", "SHA-256"), ("sha512", "SHA-512"), ("chacha20", "ChaCha20"),
+                        ("kyber", "ML-KEM"), ("dilithium", "ML-DSA"), ("sphincs", "SLH-DSA"),
+                        ("ed25519", "Ed25519"), ("x25519", "X25519"), ("bouncycastle", "BouncyCastle-Crypto"),
+                        ("tink", "Tink-AEAD")
+                    ]
+                    for name in zf.namelist():
+                        if name.endswith(".class"):
+                            lower_name = name.lower()
+                            for kw, alg_name in crypto_algs:
+                                if kw in lower_name:
+                                    internal_findings.append(SourceFinding(
+                                        source_domain="source_code",
+                                        language=ecosystem,
+                                        file_path=str(lib_path),
+                                        line_number=1,
+                                        column_number=1,
+                                        code_snippet=name,
+                                        primitive="cryptographic_operation",
+                                        algorithm=alg_name,
+                                        operation="jar_class_definition",
+                                        quantum_safe=alg_name in ["ML-KEM", "ML-DSA", "SLH-DSA"],
+                                        nist_status="approved",
+                                    ))
+                                    break
+                                if len(internal_findings) >= 40:
+                                    break
+                        if len(internal_findings) >= 40:
+                            break
+            except Exception:
+                pass
+
         # Limit library file exploration to prevent scanning massive vendor test suites
         scanned_count = 0
-        if scanner:
+        if scanner and lib_path.is_dir():
             import os
             try:
                 for root, _, files in os.walk(str(lib_path)):

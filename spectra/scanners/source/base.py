@@ -101,6 +101,11 @@ class BaseSourceScanner(ABC):
         if not symbol_name:
             return 0, 0, 0
 
+        # Don't compute blast radius for external system/vendor libraries
+        lower_parts = [p.lower() for p in file_path.parts]
+        if any(p in lower_parts for p in ["node_modules", "site-packages", ".venv", "vendor", ".m2", "program files", "usr", "target"]):
+            return 0, 0, 0
+
         project_root = file_path.parent.parent
         direct_call_files: Set[str] = set()
         transitive_call_files: Set[str] = set()

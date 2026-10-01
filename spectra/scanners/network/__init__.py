@@ -45,7 +45,7 @@ class NetworkScanOrchestrator:
             excluded = self.config.source_scanner.excluded_directories
 
             nginx_findings: List[NginxFinding] = self.nginx_scanner.scan_directory(
-                target_dir, excluded_dirs=excluded
+                target_dir, excluded_dirs=excluded, progress_callback=progress_callback
             )
             log_info(f"Discovered {len(nginx_findings)} Nginx/web server cryptographic block(s).")
             for nf in nginx_findings:
@@ -74,8 +74,21 @@ class NetworkScanOrchestrator:
                 for rf in recon_findings:
                     all_findings.append(rf.to_dict())
 
-            for ep_str in target_endpoints:
+            total_eps = len(target_endpoints)
+            for idx, ep_str in enumerate(target_endpoints, start=1):
                 host, port = self._parse_endpoint(ep_str)
+                if progress_callback:
+                    pct = 95.0 + (idx / total_eps) * 5.0
+                    progress_callback(
+                        f"Domain 4/4: Handshaking {host}:{port} ({idx}/{total_eps})...",
+                        pct,
+                        item_info={
+                            "seq": f"{idx}/{total_eps}",
+                            "type": "network endpoint",
+                            "filename": host,
+                            "location": f"{host}:{port}",
+                        }
+                    )
                 finding: Optional[NetworkEndpointFinding] = self.endpoint_scanner.scan_endpoint(host, port)
                 if finding:
                     all_findings.append(finding.to_dict())
