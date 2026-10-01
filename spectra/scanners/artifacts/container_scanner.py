@@ -8,7 +8,7 @@ Inspecting container build definitions via rules/container_patterns.yaml.
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import yaml
 
 
@@ -73,17 +73,44 @@ class ContainerScanner:
         except Exception:
             return {}
 
-    def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[ContainerFinding]:
+    def scan_directory(
+        self,
+        target_dir: Path,
+        excluded_dirs: Optional[List[str]] = None,
+        progress_callback: Optional[Callable] = None,
+    ) -> List[ContainerFinding]:
         findings: List[ContainerFinding] = []
         excluded = set(excluded_dirs or [])
 
+        container_files: List[Path] = []
         for path in target_dir.rglob("*"):
             if not path.is_file():
                 continue
             if any(part in excluded for part in path.parts):
                 continue
             if path.name.lower() in self.dockerfile_names or path.suffix.lower() in self.dockerfile_extensions:
-                findings.extend(self.scan_file(path))
+                container_files.append(path)
+
+        total_cnt = len(container_files)
+        for idx, path in enumerate(container_files, start=1):
+            if progress_callback and total_cnt > 0:
+                pct = 58.0 + (idx / total_cnt) * 4.0
+                desc = f"Domain 2/4: Auditing Container ({idx}/{total_cnt}) {path.name}"
+                try:
+                    rel_loc = str(path.relative_to(target_dir)).replace("\\", "/")
+                except Exception:
+                    rel_loc = str(path).replace("\\", "/")
+                progress_callback(
+                    desc,
+                    pct,
+                    item_info={
+                        "seq": f"{idx}/{total_cnt}",
+                        "type": "container",
+                        "filename": path.name,
+                        "location": rel_loc,
+                    }
+                )
+            findings.extend(self.scan_file(path))
 
         return findings
 

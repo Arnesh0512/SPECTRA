@@ -20,6 +20,7 @@ from rich.align import Align
 from rich import box
 from rich.columns import Columns
 from rich.console import Console, Group
+from rich.live import Live
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
@@ -537,18 +538,43 @@ def scan(
     scanner = MasterScanner(config)
     engine = CryptoAnalysisEngine(config)
 
-    # Dynamic progress bar experience
-    with Progress(
+    from rich.markup import escape
+
+    progress = Progress(
         SpinnerColumn("aesthetic", style="bold cyan"),
         TextColumn("{task.description}"),
         BarColumn(bar_width=32, style="grey23", complete_style="bold cyan", finished_style="bold green"),
         TaskProgressColumn(text_format="[bold bright_cyan]{task.percentage:>3.0f}%[/bold bright_cyan]"),
         TimeElapsedColumn(),
         console=console,
-    ) as progress:
-        stage_task = progress.add_task("[bold white]Phase 1/5: Multi-Domain Reconnaissance...[/bold white]", total=100)
+    )
+    stage_task = progress.add_task("[bold white]Phase 1/5: Multi-Domain Reconnaissance...[/bold white]", total=100)
 
-        def on_recon_progress(desc: str, pct: float) -> None:
+    term_width = console.width if (console.width and console.width >= 60) else 100
+    col1_w = 10
+    col2_w = 18
+    col3_w = max(24, term_width - 38)
+
+    type_colors = {
+        "source code": "bright_cyan",
+        "depedency": "bright_yellow",
+        "dependency": "bright_yellow",
+        "certifcate": "bright_green",
+        "certificate": "bright_green",
+        "binary": "bright_magenta",
+        "container": "bright_blue",
+        "terraform": "bright_magenta",
+        "cloud": "bright_cyan",
+        "nginx": "bright_yellow",
+        "network endpoint": "bright_green",
+        "endpoint": "bright_green",
+    }
+
+    with progress:
+        header_printed = False
+
+        def on_recon_progress(desc: str, pct: float, item_info: Optional[Dict[str, Any]] = None) -> None:
+            nonlocal header_printed
             # stage_task reflects the current reconnaissance phase progress (0% -> 100%)
             import re
             padded = f"{desc:<62}"
@@ -560,14 +586,76 @@ def scan(
             )
             progress.update(stage_task, completed=pct, description=f"[bold white]{formatted_desc}[/bold white]")
 
+            if item_info:
+                seq = str(item_info.get("seq", ""))
+                itype = str(item_info.get("type", ""))
+                filename = str(item_info.get("filename", ""))
+                location = str(item_info.get("location", ""))
+            else:
+                m_dep = re.search(r"Dependency \((\d+/\d+)\) \[([^\]]+)\] (.+)", desc)
+                m_ast = re.search(r"AST Parsing \((\d+/\d+)\) \[([^\]]+)\] (.+)", desc)
+                if m_dep:
+                    seq = m_dep.group(1)
+                    itype = "depedency"
+                    filename = m_dep.group(3).strip()
+                    location = ""
+                elif m_ast:
+                    seq = m_ast.group(1)
+                    itype = "source code"
+                    filename = m_ast.group(3).strip()
+                    location = ""
+                else:
+                    return
+
+            if not header_printed:
+                progress.console.print(f"[cyan]╭{'─' * (col1_w + 2)}┬{'─' * (col2_w + 2)}┬{'─' * (col3_w + 2)}╮[/cyan]")
+                progress.console.print(f"[cyan]│[/cyan] [bold bright_cyan]{'Seq':^{col1_w}}[/bold bright_cyan] [cyan]│[/cyan] [bold bright_cyan]{'Type':<{col2_w}}[/bold bright_cyan] [cyan]│[/cyan] [bold bright_cyan]{'Filename & Location':<{col3_w}}[/bold bright_cyan] [cyan]│[/cyan]")
+                progress.console.print(f"[cyan]├{'─' * (col1_w + 2)}┼{'─' * (col2_w + 2)}┼{'─' * (col3_w + 2)}┤[/cyan]")
+                header_printed = True
+
+            color = type_colors.get(itype.lower(), "bright_white")
+            esc_fn = escape(filename)
+            esc_loc = escape(location)
+            raw_col3 = f"{filename}  {location}" if location else filename
+
+            if len(raw_col3) > col3_w:
+                if location:
+                    avail_loc = col3_w - len(filename) - 5
+                    if avail_loc > 10:
+                        trunc_loc = location[:avail_loc] + "..."
+                        styled_col3 = f"[bold white]{esc_fn}[/bold white]  [dim white]{escape(trunc_loc)}[/dim white]"
+                    else:
+                        trunc_raw = raw_col3[:col3_w - 3] + "..."
+                        styled_col3 = f"[bold white]{escape(trunc_raw)}[/bold white]"
+                else:
+                    styled_col3 = f"[bold white]{escape(raw_col3[:col3_w - 3])}...[/bold white]"
+                pad = ""
+            else:
+                if location:
+                    styled_col3 = f"[bold white]{esc_fn}[/bold white]  [dim white]{esc_loc}[/dim white]"
+                else:
+                    styled_col3 = f"[bold white]{esc_fn}[/bold white]"
+                pad = " " * (col3_w - len(raw_col3))
+
+            row = (
+                f"[cyan]│[/cyan] [bold cyan]{seq:^{col1_w}}[/bold cyan] "
+                f"[cyan]│[/cyan] [{color}]{itype:<{col2_w}}[/{color}] "
+                f"[cyan]│[/cyan] {styled_col3}{pad} "
+                f"[cyan]│[/cyan]"
+            )
+            progress.console.print(row)
+
         # 1. Multi-Domain Reconnaissance
         results: ScanResults = scanner.scan_all(
             target_dir=target_path,
             endpoints=endpoints,
             progress_callback=on_recon_progress,
         )
+        if header_printed:
+            progress.console.print(f"[cyan]╰{'─' * (col1_w + 2)}┴{'─' * (col2_w + 2)}┴{'─' * (col3_w + 2)}╯[/cyan]")
+
         progress.update(stage_task, completed=100, description="[bold green]✔ Phase 1/5: Reconnaissance Complete[/bold green]")
-        console.print(f"  [bold green]✔[/bold green] Discovered {results.total_count:,} raw cryptographic telemetry findings.")
+        progress.console.print(f"  [bold green]✔[/bold green] Discovered {results.total_count:,} raw cryptographic telemetry findings.")
 
         if results.total_count == 0:
             log_warning("No cryptographic primitives, artifacts, or configs detected in scan scope.")
@@ -577,14 +665,14 @@ def scan(
         progress.update(stage_task, description="[bold cyan]Phase 2/5: Canonical Asset Normalization...[/bold cyan]", completed=15)
         normalized_assets = engine.normalizer.normalize_batch(results.all_findings)
         progress.update(stage_task, completed=100)
-        console.print(f"  [bold green]✔[/bold green] Successfully normalized {len(normalized_assets):,} cryptographic assets.")
+        progress.console.print(f"  [bold green]✔[/bold green] Successfully normalized {len(normalized_assets):,} cryptographic assets.")
 
         # 3. Cross-Domain Correlation
         progress.update(stage_task, description="[bold yellow]Phase 3/5: Cross-Domain Blast Radius Correlation...[/bold yellow]", completed=20)
         correlated_assets = engine.correlator.correlate(normalized_assets)
         correlated_links = sum(len(ca.cross_domain_links) for ca in correlated_assets)
         progress.update(stage_task, completed=100)
-        console.print(f"  [bold green]✔[/bold green] Established {correlated_links} cross-domain links across {len(correlated_assets):,} composite assets.")
+        progress.console.print(f"  [bold green]✔[/bold green] Established {correlated_links} cross-domain links across {len(correlated_assets):,} composite assets.")
 
         # 4. Mosca Multi-Scenario Quantum Risk Simulation
         progress.update(stage_task, description="[bold magenta]Phase 4/5: Mosca Quantum Risk Simulation (3 Scenarios)...[/bold magenta]", completed=20)
@@ -595,7 +683,7 @@ def scan(
         )
         breached_count = sum(1 for m in mosca_evals.values() if m.is_inequality_breached)
         progress.update(stage_task, completed=100)
-        console.print(f"  [bold green]✔[/bold green] Evaluated {len(mosca_evals):,} scenario-asset combinations ({breached_count:,} breaches).")
+        progress.console.print(f"  [bold green]✔[/bold green] Evaluated {len(mosca_evals):,} scenario-asset combinations ({breached_count:,} breaches).")
 
         # 5. CycloneDX 1.6 CBOM Synthesis & Serialization
         progress.update(stage_task, description="[bold bright_green]Phase 5/5: CycloneDX 1.6 CBOM Synthesis...[/bold bright_green]", completed=25)
@@ -606,7 +694,7 @@ def scan(
         written_path = engine.cbom_builder.save_cbom(cbom, output_path)
         output_path = written_path
         progress.update(stage_task, completed=100)
-        console.print(f"  [bold green]✔[/bold green] CycloneDX 1.6 CBOM exported to: [bold bright_white]{written_path}[/bold bright_white]")
+        progress.console.print(f"  [bold green]✔[/bold green] CycloneDX 1.6 CBOM exported to: [bold bright_white]{written_path}[/bold bright_white]")
 
     # --- Render Executive KPI Cards ---
     _render_kpi_cards(results.total_count, len(normalized_assets), correlated_links, breached_count)
@@ -660,12 +748,15 @@ def scan(
         )
         console.print(visualizer_panel)
         console.print(f"  🌐 [bold bright_cyan]Interactive Visualizer Link:[/bold bright_cyan] [bold underline bright_yellow][link={web_url}]{web_url}[/link][/bold underline bright_yellow]\n")
-        console.print("  [dim]Press Ctrl+C to shut down and exit...[/dim]\n")
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            console.print("\n[dim]Shutting down visualizer...[/dim]")
+        if not yes:
+            console.print("  [dim]Press Ctrl+C to shut down and exit...[/dim]\n")
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                console.print("\n[dim]Shutting down visualizer...[/dim]")
+        else:
+            time.sleep(0.5)
 
     # Check failure conditions
     critical_breaches = any(

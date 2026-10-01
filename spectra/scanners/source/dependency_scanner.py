@@ -134,8 +134,36 @@ class DependencyScanner:
             # High-visibility progress report showing exact language/ecosystem and module name
             # e.g.: Domain 1/4: Dependency (1/43) [python] cryptography
             desc = f"Domain 1/4: Dependency ({idx}/{total_deps}) [{ecosystem}] {pkg_name}"
+            
+            # Resolve the actual installation path of the package on disk
+            installed_path = self.analyzer.locate_library_path(pkg_name, ecosystem, target_dir, manifest_file=file_path)
+            if installed_path and installed_path.exists():
+                try:
+                    rel_loc = str(installed_path.relative_to(target_dir)).replace("\\", "/")
+                except Exception:
+                    try:
+                        rel_loc = str(installed_path.relative_to(Path.home())).replace("\\", "/")
+                        rel_loc = f"~/{rel_loc}"
+                    except Exception:
+                        rel_loc = str(installed_path).replace("\\", "/")
+            else:
+                try:
+                    manifest_rel = str(file_path.relative_to(target_dir)).replace("\\", "/")
+                except Exception:
+                    manifest_rel = str(file_path).replace("\\", "/")
+                rel_loc = f"[dim](not installed: {manifest_rel})[/dim]"
+
             if progress_callback:
-                progress_callback(desc, pct)
+                progress_callback(
+                    desc,
+                    pct,
+                    item_info={
+                        "seq": f"{idx}/{total_deps}",
+                        "type": "depedency",
+                        "filename": pkg_name,
+                        "location": rel_loc,
+                    }
+                )
 
             finding = self._build_finding(raw, ecosystem, target_dir, file_path)
             findings.append(finding)
@@ -143,7 +171,9 @@ class DependencyScanner:
             pkg_key = (ecosystem, pkg_name.lower())
             if scanners_map and pkg_key not in analyzed_packages:
                 analyzed_packages.add(pkg_key)
-                analysis_results = self.analyzer.analyze_dependency(pkg_name, ecosystem, target_dir, scanners_map)
+                analysis_results = self.analyzer.analyze_dependency(
+                    pkg_name, ecosystem, target_dir, scanners_map, manifest_file=file_path
+                )
                 for res in analysis_results:
                     findings.append(self._build_analysis_finding(res, target_dir, file_path, ecosystem=ecosystem))
 

@@ -8,7 +8,7 @@ Loaded via rules/infra_patterns.yaml.
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import yaml
 
 
@@ -73,15 +73,42 @@ class TerraformScanner:
         except Exception:
             return {}
 
-    def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[TerraformFinding]:
+    def scan_directory(
+        self,
+        target_dir: Path,
+        excluded_dirs: Optional[List[str]] = None,
+        progress_callback: Optional[Callable] = None,
+    ) -> List[TerraformFinding]:
         findings: List[TerraformFinding] = []
         excluded = set(excluded_dirs or [])
 
+        tf_files: List[Path] = []
         for path in target_dir.rglob("*.tf"):
             if not path.is_file():
                 continue
             if any(part in excluded for part in path.parts):
                 continue
+            tf_files.append(path)
+
+        total_tf = len(tf_files)
+        for idx, path in enumerate(tf_files, start=1):
+            if progress_callback and total_tf > 0:
+                pct = 70.0 + (idx / total_tf) * 5.0
+                desc = f"Domain 3/4: Auditing Terraform ({idx}/{total_tf}) {path.name}"
+                try:
+                    rel_loc = str(path.relative_to(target_dir)).replace("\\", "/")
+                except Exception:
+                    rel_loc = str(path).replace("\\", "/")
+                progress_callback(
+                    desc,
+                    pct,
+                    item_info={
+                        "seq": f"{idx}/{total_tf}",
+                        "type": "terraform",
+                        "filename": path.name,
+                        "location": rel_loc,
+                    }
+                )
             findings.extend(self.scan_file(path))
 
         return findings

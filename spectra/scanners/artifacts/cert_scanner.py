@@ -10,7 +10,7 @@ Loaded via rules/artifact_patterns.yaml.
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 import yaml
 
 from cryptography import x509
@@ -81,10 +81,16 @@ class CertScanner:
         except Exception:
             return {}
 
-    def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[CertFinding]:
+    def scan_directory(
+        self,
+        target_dir: Path,
+        excluded_dirs: Optional[List[str]] = None,
+        progress_callback: Optional[Callable] = None,
+    ) -> List[CertFinding]:
         findings: List[CertFinding] = []
         excluded = set(excluded_dirs or [])
 
+        matching_files: List[Path] = []
         for path in target_dir.rglob("*"):
             if not path.is_file():
                 continue
@@ -94,9 +100,30 @@ class CertScanner:
             suffix = path.suffix.lower()
             name = path.name.lower()
             if suffix in self.cert_extensions or name in self.special_filenames:
-                finding = self.scan_file(path)
-                if finding:
-                    findings.append(finding)
+                matching_files.append(path)
+
+        total_certs = len(matching_files)
+        for idx, path in enumerate(matching_files, start=1):
+            if progress_callback and total_certs > 0:
+                pct = 45.0 + (idx / total_certs) * 7.0
+                desc = f"Domain 2/4: Auditing Certificate ({idx}/{total_certs}) {path.name}"
+                try:
+                    rel_loc = str(path.relative_to(target_dir)).replace("\\", "/")
+                except Exception:
+                    rel_loc = str(path).replace("\\", "/")
+                progress_callback(
+                    desc,
+                    pct,
+                    item_info={
+                        "seq": f"{idx}/{total_certs}",
+                        "type": "certifcate",
+                        "filename": path.name,
+                        "location": rel_loc,
+                    }
+                )
+            finding = self.scan_file(path)
+            if finding:
+                findings.append(finding)
 
         return findings
 

@@ -48,7 +48,8 @@ class InfrastructureScanOrchestrator:
             log_step(f"Scanning Terraform configurations in: {target_dir}")
             tf_findings: List[TerraformFinding] = self.terraform_scanner.scan_directory(
                 target_dir=target_dir,
-                excluded_dirs=excluded
+                excluded_dirs=excluded,
+                progress_callback=progress_callback,
             )
             log_info(f"Discovered {len(tf_findings)} cryptographic resource(s) in Terraform files.")
             for f in tf_findings:
@@ -61,7 +62,8 @@ class InfrastructureScanOrchestrator:
             log_step(f"Scanning generic IaC manifests in: {target_dir}")
             iac_findings: List[IaCFinding] = self.iac_scanner.scan_directory(
                 target_dir=target_dir,
-                excluded_dirs=excluded
+                excluded_dirs=excluded,
+                progress_callback=progress_callback,
             )
             log_info(f"Discovered {len(iac_findings)} cryptographic resource(s) in generic IaC manifests.")
             for f in iac_findings:

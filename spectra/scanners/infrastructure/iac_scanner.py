@@ -8,7 +8,7 @@ Loaded via rules/infra_patterns.yaml.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import json
 import yaml
 
@@ -68,16 +68,44 @@ class IaCScanner:
         except Exception:
             return {}
 
-    def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[IaCFinding]:
+    def scan_directory(
+        self,
+        target_dir: Path,
+        excluded_dirs: Optional[List[str]] = None,
+        progress_callback: Optional[Callable] = None,
+    ) -> List[IaCFinding]:
         findings: List[IaCFinding] = []
         excluded = set(excluded_dirs or [])
 
+        iac_files: List[Path] = []
         for path in target_dir.rglob("*"):
             if not path.is_file():
                 continue
             if any(part in excluded for part in path.parts):
                 continue
+            ext = path.suffix.lower()
+            if ext in self.YAML_EXTENSIONS or ext in self.JSON_EXTENSIONS:
+                iac_files.append(path)
 
+        total_iac = len(iac_files)
+        for idx, path in enumerate(iac_files, start=1):
+            if progress_callback and total_iac > 0:
+                pct = 75.0 + (idx / total_iac) * 3.0
+                desc = f"Domain 3/4: Auditing IaC ({idx}/{total_iac}) {path.name}"
+                try:
+                    rel_loc = str(path.relative_to(target_dir)).replace("\\", "/")
+                except Exception:
+                    rel_loc = str(path).replace("\\", "/")
+                progress_callback(
+                    desc,
+                    pct,
+                    item_info={
+                        "seq": f"{idx}/{total_iac}",
+                        "type": "cloud",
+                        "filename": path.name,
+                        "location": rel_loc,
+                    }
+                )
             ext = path.suffix.lower()
             if ext in self.YAML_EXTENSIONS:
                 findings.extend(self._scan_yaml_file(path))

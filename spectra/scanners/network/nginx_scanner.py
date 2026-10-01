@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import platform
 from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import yaml
 
 
@@ -114,7 +114,12 @@ class NginxScanner:
 
         return paths
 
-    def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[NginxFinding]:
+    def scan_directory(
+        self,
+        target_dir: Path,
+        excluded_dirs: Optional[List[str]] = None,
+        progress_callback: Optional[Callable] = None,
+    ) -> List[NginxFinding]:
         findings: List[NginxFinding] = []
         excluded = set(excluded_dirs or [])
 
@@ -124,6 +129,7 @@ class NginxScanner:
             if fallback not in search_directories:
                 search_directories.append(fallback)
 
+        config_files: List[Path] = []
         for directory in search_directories:
             if not directory.exists():
                 continue
@@ -133,7 +139,28 @@ class NginxScanner:
                 if any(part in excluded for part in path.parts):
                     continue
                 if path.suffix.lower() in self.CONFIG_EXTENSIONS or path.name in ["nginx.conf", "httpd.conf"]:
-                    findings.extend(self.scan_file(path))
+                    config_files.append(path)
+
+        total_cfg = len(config_files)
+        for idx, path in enumerate(config_files, start=1):
+            if progress_callback and total_cfg > 0:
+                pct = 90.0 + (idx / total_cfg) * 4.0
+                desc = f"Domain 4/4: Auditing Nginx ({idx}/{total_cfg}) {path.name}"
+                try:
+                    rel_loc = str(path.relative_to(target_dir)).replace("\\", "/") if target_dir else str(path).replace("\\", "/")
+                except Exception:
+                    rel_loc = str(path).replace("\\", "/")
+                progress_callback(
+                    desc,
+                    pct,
+                    item_info={
+                        "seq": f"{idx}/{total_cfg}",
+                        "type": "nginx",
+                        "filename": path.name,
+                        "location": rel_loc,
+                    }
+                )
+            findings.extend(self.scan_file(path))
 
         return findings
 

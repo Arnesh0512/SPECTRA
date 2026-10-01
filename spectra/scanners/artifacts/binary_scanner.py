@@ -9,7 +9,7 @@ and binary string constants across ELF, PE, and Mach-O files.
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 import yaml
 
 from spectra.utils.shell import command_exists, extract_printable_strings, run_command
@@ -70,20 +70,46 @@ class BinaryScanner:
         except Exception:
             return {"libraries": {}, "symbol_patterns": [], "algorithm_patterns": []}
 
-    def scan_directory(self, target_dir: Path, excluded_dirs: Optional[List[str]] = None) -> List[BinaryFinding]:
+    def scan_directory(
+        self,
+        target_dir: Path,
+        excluded_dirs: Optional[List[str]] = None,
+        progress_callback: Optional[Callable] = None,
+    ) -> List[BinaryFinding]:
         findings: List[BinaryFinding] = []
         excluded = set(excluded_dirs or [])
 
+        bin_files: List[Path] = []
         for path in target_dir.rglob("*"):
             if not path.is_file():
                 continue
             if any(part in excluded for part in path.parts):
                 continue
-
             if path.suffix.lower() in self.BINARY_EXTENSIONS and self._is_binary_file(path):
-                finding = self.scan_binary(path)
-                if finding:
-                    findings.append(finding)
+                bin_files.append(path)
+
+        total_bins = len(bin_files)
+        for idx, path in enumerate(bin_files, start=1):
+            if progress_callback and total_bins > 0:
+                pct = 52.0 + (idx / total_bins) * 6.0
+                desc = f"Domain 2/4: Auditing Binary ({idx}/{total_bins}) {path.name}"
+                try:
+                    rel_loc = str(path.relative_to(target_dir)).replace("\\", "/")
+                except Exception:
+                    rel_loc = str(path).replace("\\", "/")
+                progress_callback(
+                    desc,
+                    pct,
+                    item_info={
+                        "seq": f"{idx}/{total_bins}",
+                        "type": "binary",
+                        "filename": path.name,
+                        "location": rel_loc,
+                    }
+                )
+            finding = self.scan_binary(path)
+            if finding:
+                findings.append(finding)
 
         return findings
 

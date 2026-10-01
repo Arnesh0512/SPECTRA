@@ -37,7 +37,7 @@ class ArtifactScanOrchestrator:
         if progress_callback:
             progress_callback("Domain 2/4: Auditing X.509 Certificates & Asymmetric Keys...", 45.0)
         cert_findings: List[CertFinding] = self.cert_scanner.scan_directory(
-            target_dir, excluded_dirs=excluded
+            target_dir, excluded_dirs=excluded, progress_callback=progress_callback
         )
         log_info(f"Discovered {len(cert_findings)} certificate/key artifact(s).")
 
@@ -45,7 +45,7 @@ class ArtifactScanOrchestrator:
         if progress_callback:
             progress_callback("Domain 2/4: Auditing Executable Binaries & Shared Libraries...", 52.0)
         binary_findings: List[BinaryFinding] = self.binary_scanner.scan_directory(
-            target_dir, excluded_dirs=excluded
+            target_dir, excluded_dirs=excluded, progress_callback=progress_callback
         )
         log_info(f"Discovered {len(binary_findings)} binary/library artifact(s) with crypto linkage.")
 
@@ -53,7 +53,7 @@ class ArtifactScanOrchestrator:
         if progress_callback:
             progress_callback("Domain 2/4: Auditing Container Definitions & Dockerfiles...", 58.0)
         container_findings: List[ContainerFinding] = self.container_scanner.scan_directory(
-            target_dir, excluded_dirs=excluded
+            target_dir, excluded_dirs=excluded, progress_callback=progress_callback
         )
         log_info(f"Discovered {len(container_findings)} container cryptographic finding(s).")
 
