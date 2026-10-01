@@ -42,12 +42,30 @@ class NetworkConfig(BaseModel):
     endpoints: List[str] = Field(default_factory=list, description="Remote host:port targets for TLS inspection")
 
 
+def _get_default_aws_regions() -> List[str]:
+    detected: List[str] = []
+    try:
+        import boto3
+        sess = boto3.Session()
+        if sess.region_name:
+            detected.append(sess.region_name)
+    except Exception:
+        pass
+    import os
+    env_reg = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")
+    if env_reg and env_reg not in detected:
+        detected.append(env_reg)
+    if "us-east-1" not in detected:
+        detected.append("us-east-1")
+    return detected
+
+
 class AWSConfig(BaseModel):
     enabled: bool = Field(
         default_factory=lambda: (Path.home() / ".aws").exists(),
         description="Auto-enabled if ~/.aws credentials exist"
     )
-    regions: List[str] = Field(default_factory=lambda: ["us-east-1"], description="AWS regions to scan")
+    regions: List[str] = Field(default_factory=_get_default_aws_regions, description="AWS regions to scan")
 
 
 class AzureConfig(BaseModel):
