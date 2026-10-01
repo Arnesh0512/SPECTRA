@@ -7,7 +7,7 @@ language-specific AST parsers, and project manifest dependency scanning.
 
 from pathlib import Path
 import re
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set, Optional, Any, Callable
 
 from spectra.config import ScanConfig
 from spectra.utils.logger import log_info, log_step, log_warning
@@ -66,7 +66,7 @@ class SourceScanOrchestrator:
         # Build dynamic regex pattern for pre-filtering
         self.dynamic_crypto_regex = self._build_dynamic_regex()
 
-    def scan(self, target_dir: Path) -> List[SourceFinding]:
+    def scan(self, target_dir: Path, progress_callback: Optional[Any] = None) -> List[SourceFinding]:
         """Executes the complete multi-tier scan pipeline on the target directory."""
         log_step(f"Scanning source code in: {target_dir}")
         all_findings: List[SourceFinding] = []
@@ -76,9 +76,17 @@ class SourceScanOrchestrator:
         dep_findings = self.dependency_scanner.scan_directory(
             target_dir, 
             excluded_dirs=excluded, 
-            scanners_map=self.ecosystem_to_scanner
+            scanners_map=self.ecosystem_to_scanner,
+            progress_callback=progress_callback
         )
-        log_info(f"Discovered {len(dep_findings)} crypto dependency declaration(s) and function mappings.")
+        dep_decls = [f for f in dep_findings if f.raw_metadata.get("finding_type") == "crypto_capable_dependency"]
+        dep_funcs = [f for f in dep_findings if f.raw_metadata.get("finding_type") == "dependency_function_analysis"]
+        unique_pkgs = len(set(f.raw_metadata.get("package", "") for f in dep_decls))
+
+        if dep_funcs:
+            log_info(f"Discovered {len(dep_decls)} crypto dependency declaration(s) across manifests ({unique_pkgs} unique packages) and {len(dep_funcs)} internal function mapping(s).")
+        else:
+            log_info(f"Discovered {len(dep_decls)} crypto dependency declaration(s) across manifests ({unique_pkgs} unique packages).")
         all_findings.extend(dep_findings)
 
         # 2. Tier 1: Discover candidate files with crypto signatures
@@ -86,15 +94,103 @@ class SourceScanOrchestrator:
         log_info(f"Identified {len(candidate_files)} candidate crypto source file(s) for deep analysis.")
 
         # 3. Tier 2: Deep AST / syntax analysis
-        for file_path in candidate_files:
+        total_candidates = len(candidate_files)
+        for idx, file_path in enumerate(candidate_files, start=1):
+            main_lang = self.detect_module_main_language(file_path, target_dir)
             ext = file_path.suffix.lower()
             scanner = self.ext_to_scanner.get(ext)
             if scanner:
                 findings = scanner.parse_file(file_path)
+                for f in findings:
+                    f.language = main_lang
+                    if hasattr(f, "raw_metadata") and isinstance(f.raw_metadata, dict):
+                        f.raw_metadata["module_language"] = main_lang
+                        f.raw_metadata["language"] = main_lang
                 all_findings.extend(findings)
+            if progress_callback and total_candidates > 0:
+                pct = 12.0 + (idx / total_candidates) * 28.0
+                desc = f"Domain 1/4: AST Parsing ({idx}/{total_candidates}) [{main_lang}] {file_path.name}"
+                progress_callback(desc, pct)
 
         log_info(f"Source scan completed with {len(all_findings)} finding(s).")
         return all_findings
+
+    @staticmethod
+    def detect_module_main_language(file_path: Path, root_dir: Optional[Path] = None) -> str:
+        """
+        Determines the primary module language for a file by inspecting parent module
+        manifests and service directory names, mapping native/glue files (like C files in a Java service)
+        back to their parent module's main language.
+        """
+        manifest_langs = [
+            (('build.gradle.kts',), 'kotlin'),
+            (('pom.xml', 'build.gradle'), 'java'),
+            (('tsconfig.json',), 'typescript'),
+            (('package.json',), 'javascript'),
+            (('pyproject.toml', 'requirements.txt', 'poetry.lock', 'pipfile', 'setup.py'), 'python'),
+            (('go.mod', 'go.sum'), 'go'),
+            (('cargo.toml', 'cargo.lock'), 'rust'),
+        ]
+
+        ext_langs = {
+            '.py': 'python', '.java': 'java', '.kt': 'kotlin', '.kts': 'kotlin',
+            '.ts': 'typescript', '.tsx': 'typescript', '.js': 'javascript', '.jsx': 'javascript',
+            '.go': 'go', '.rs': 'rust', '.cpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp',
+            '.hpp': 'cpp', '.c': 'c', '.h': 'c'
+        }
+
+        curr = file_path.parent
+        root = root_dir.resolve() if root_dir else None
+
+        while curr:
+            name_lower = curr.name.lower()
+
+            try:
+                entries = {p.name.lower() for p in curr.iterdir() if p.is_file()}
+            except Exception:
+                entries = set()
+
+            for manifests, lang in manifest_langs:
+                if any(m in entries for m in manifests):
+                    if lang == 'javascript' and ('tsconfig.json' in entries or any(p.suffix.lower() == '.ts' for p in curr.glob('*.ts'))):
+                        return 'typescript'
+                    return lang
+
+            # CMake / C/C++ build manifests
+            if any(m in entries for m in ('cmakelists.txt', 'vcpkg.json', 'conanfile.txt', 'meson.build')):
+                if any(part in name_lower for part in ('-cpp', '_cpp', 'cpp', 'c++')):
+                    return 'cpp'
+                if any(part in name_lower for part in ('-c', '_c')) or name_lower.endswith('c'):
+                    return 'c'
+                return 'cpp'
+
+            # Service/Module directory naming conventions
+            if re.search(r'[-_]?(java|jvm)[-_]?', name_lower) or name_lower.endswith('-java'):
+                return 'java'
+            if re.search(r'[-_]?kotlin[-_]?', name_lower) or name_lower.endswith('-kotlin'):
+                return 'kotlin'
+            if re.search(r'[-_]?(py|python)[-_]?', name_lower) or name_lower.endswith('-py'):
+                return 'python'
+            if re.search(r'[-_]?(go|golang)[-_]?', name_lower) or name_lower.endswith('-go'):
+                return 'go'
+            if re.search(r'[-_]?(rs|rust)[-_]?', name_lower) or name_lower.endswith('-rs'):
+                return 'rust'
+            if re.search(r'[-_]?(ts|typescript)[-_]?', name_lower) or name_lower.endswith('-ts'):
+                return 'typescript'
+            if re.search(r'[-_]?(js|javascript)[-_]?', name_lower) or name_lower.endswith('-js'):
+                return 'javascript'
+            if re.search(r'[-_]?(cpp|cplusplus)[-_]?', name_lower) or name_lower.endswith('-cpp'):
+                return 'cpp'
+            if re.search(r'[-_]c[-_]?', name_lower) or name_lower.endswith('-c'):
+                return 'c'
+
+            if root and curr.resolve() == root:
+                break
+            if curr.parent == curr:
+                break
+            curr = curr.parent
+
+        return ext_langs.get(file_path.suffix.lower(), 'source')
 
     def _find_candidates(self, target_dir: Path) -> Set[Path]:
         """Finds candidate files via ripgrep if enabled/available, else uses Python fallback."""

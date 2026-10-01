@@ -266,7 +266,7 @@ class AssetNormalizer:
         transitive_calls = finding.get("transitive_calls", metadata.get("transitive_calls", 0))
         call_depth = finding.get("call_depth", metadata.get("call_depth", 0))
         loc = finding.get("loc", metadata.get("loc", 10))
-        is_upstream = metadata.get("finding_type") == "crypto_capable_dependency"
+        is_upstream = metadata.get("finding_type") in ["crypto_capable_dependency", "dependency_function_analysis"]
 
         if primitive in ["certificate", "x509"]:
             asset_type = "certificate"
