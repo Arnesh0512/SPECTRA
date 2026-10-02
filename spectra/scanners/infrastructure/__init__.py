@@ -14,13 +14,14 @@ from spectra.utils.logger import log_info, log_step, log_warning
 
 from .aws_scanner import AWSFinding, AWSScanner
 from .azure_scanner import AzureFinding, AzureScanner
+from .gcp_scanner import GCPFinding, GCPScanner
 from .hardware_scanner import HardwareFinding, HardwareScanner
 from .iac_scanner import IaCFinding, IaCScanner
 from .terraform_scanner import TerraformFinding, TerraformScanner
 
 
 class InfrastructureScanOrchestrator:
-    """Dispatches scanners across Terraform files, IaC manifests, hardware modules, AWS, and Azure cloud environments."""
+    """Dispatches scanners across Terraform files, IaC manifests, hardware modules, AWS, Azure, and GCP cloud environments."""
 
     def __init__(self, config: ScanConfig):
         self.config = config
@@ -35,6 +36,12 @@ class InfrastructureScanOrchestrator:
 
         # Initialize Azure scanner
         self.azure_scanner = AzureScanner()
+
+        # Initialize GCP scanner
+        gcp_cfg = getattr(config, "gcp", None)
+        gcp_proj = getattr(gcp_cfg, "project_id", None) if gcp_cfg else None
+        gcp_locs = getattr(gcp_cfg, "locations", ["global"]) if gcp_cfg else ["global"]
+        self.gcp_scanner = GCPScanner(project_id=gcp_proj, locations=gcp_locs)
 
     def scan(self, target_dir: Optional[Path] = None, progress_callback: Optional[Callable[[str, float], None]] = None) -> List[Dict[str, Any]]:
         """Scans local Terraform directories, IaC manifests, host hardware, AWS, and Azure cloud environments."""
@@ -129,6 +136,33 @@ class InfrastructureScanOrchestrator:
                                 "type": "cloud",
                                 "filename": f"Azure KV: {f.resource_id}",
                                 "location": f"{f.vault_name} ({f.algorithm}-{f.key_size or ''})",
+                            }
+                        )
+
+        # 6. Scan GCP Cloud Resources (Cloud KMS KeyRings & CryptoKeys if enabled)
+        gcp_cfg = getattr(self.config, "gcp", None)
+        gcp_enabled = getattr(gcp_cfg, "enabled", False) if gcp_cfg else False
+
+        if gcp_enabled:
+            if progress_callback:
+                progress_callback("Domain 3/4: Auditing GCP Cloud KMS Keys...", 84.0)
+            log_step("Auditing GCP Cloud Cryptographic Assets (Cloud KMS)")
+            if not self.gcp_scanner.is_available():
+                log_warning("gcloud CLI or GCP credentials not detected; skipping live GCP KMS scan.")
+            else:
+                gcp_findings: List[GCPFinding] = self.gcp_scanner.scan()
+                log_info(f"Discovered {len(gcp_findings)} cryptographic asset(s) in GCP.")
+                for idx, f in enumerate(gcp_findings, 1):
+                    all_findings.append(f.to_dict())
+                    if progress_callback:
+                        progress_callback(
+                            f"Domain 3/4: Cloud KMS Key [{f.algorithm}] {f.resource_id}",
+                            84.0,
+                            item_info={
+                                "seq": f"{idx}/{len(gcp_findings)}",
+                                "type": "cloud",
+                                "filename": f"GCP KMS: {f.resource_id}",
+                                "location": f"{f.key_ring} ({f.algorithm}-{f.key_size or ''})",
                             }
                         )
 

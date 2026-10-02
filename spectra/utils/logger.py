@@ -56,6 +56,13 @@ def setup_logger(verbose: bool = False) -> logging.Logger:
             )
         ]
     )
+
+    # Suppress verbose HTTP wire traffic from cloud SDKs while retaining authentication info
+    logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+    logging.getLogger("azure.core").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("azure.identity").setLevel(logging.INFO)
+
     return logging.getLogger("spectra")
 
 

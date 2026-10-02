@@ -444,7 +444,7 @@ class AssetNormalizer:
             primitive="key_management",
             key_size=key_size,
             quantum_safe=qs,
-            shor_vulnerable=True,
+            shor_vulnerable=finding.get("shor_vulnerable", not qs),
             nist_status=nist_status,
             security_findings=finding.get("security_findings", []),
             raw_metadata=finding.get("raw_metadata", {}),
