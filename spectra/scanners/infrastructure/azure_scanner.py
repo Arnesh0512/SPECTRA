@@ -60,6 +60,11 @@ class AzureScanner:
 
     def __init__(self, subscription_id: Optional[str] = None):
         self.subscription_id = subscription_id
+        import logging
+        logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+        logging.getLogger("azure.core").setLevel(logging.WARNING)
+        logging.getLogger("urllib3").setLevel(logging.WARNING)
+        logging.getLogger("azure.identity").setLevel(logging.INFO)
 
     def is_available(self) -> bool:
         """Returns True if Azure SDK libraries are installed."""

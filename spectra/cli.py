@@ -462,7 +462,7 @@ def scan(
 
         console.print("\n  [bold underline magenta]Domain 3: Infrastructure & Cloud Key Management[/bold underline magenta]")
         scan_terraform = Confirm.ask("    [bright_white]• Scan Terraform / IaC configurations (.tf, CloudFormation)[/bright_white]", default=True)
-        scan_cloud_hsm = Confirm.ask("    [bright_white]• Scan Cloud KMS / HSM configurations (AWS/Azure)[/bright_white]", default=True)
+        scan_cloud_hsm = Confirm.ask("    [bright_white]• Scan Cloud KMS / HSM configurations (AWS/Azure/GCP)[/bright_white]", default=True)
         enable_infra = scan_terraform or scan_cloud_hsm
 
         console.print("\n  [bold underline blue]Domain 4: Network Protocols & TLS Perimeter[/bold underline blue]")

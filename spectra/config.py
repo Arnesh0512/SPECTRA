@@ -76,6 +76,25 @@ class AzureConfig(BaseModel):
     subscription_id: Optional[str] = Field(default=None, description="Azure subscription ID")
 
 
+def _is_gcp_configured() -> bool:
+    import os, shutil
+    has_cli = shutil.which("gcloud") is not None
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    if not has_cli and local_app_data:
+        has_cli = (Path(local_app_data) / "Google" / "Cloud SDK" / "google-cloud-sdk" / "bin" / "gcloud.cmd").exists()
+    has_adc = (Path(os.environ.get("APPDATA", "")) / "gcloud" / "application_default_credentials.json").exists()
+    return has_cli or has_adc
+
+
+class GCPConfig(BaseModel):
+    enabled: bool = Field(
+        default_factory=_is_gcp_configured,
+        description="Auto-enabled if gcloud CLI or GCP credentials exist"
+    )
+    project_id: Optional[str] = Field(default=None, description="GCP project ID")
+    locations: List[str] = Field(default_factory=lambda: ["global"], description="GCP locations to scan")
+
+
 class MoscaConfig(BaseModel):
     default_data_classification: str = Field(default="corporate_financials", description="Default shelf life profile")
     crqc_scenario: str = Field(default="central", description="pessimistic, central, or optimistic")
@@ -94,5 +113,6 @@ class ScanConfig(BaseModel):
     network: NetworkConfig = Field(default_factory=NetworkConfig)
     aws: AWSConfig = Field(default_factory=AWSConfig)
     azure: AzureConfig = Field(default_factory=AzureConfig)
+    gcp: GCPConfig = Field(default_factory=GCPConfig)
     mosca_parameters: MoscaConfig = Field(default_factory=MoscaConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
