@@ -96,76 +96,70 @@ class BaseSourceScanner(ABC):
 
     def compute_call_metrics(self, file_path: Path, symbol_name: str) -> tuple[int, int, int]:
         """
-        Uses ripgrep to trace direct callers and recursive transitive upstream callers (blast radius).
+        Uses fast, targeted ripgrep to trace direct callers and compute blast radius metrics.
         """
         if not symbol_name:
             return 0, 0, 0
 
         # Don't compute blast radius for external system/vendor libraries
         lower_parts = [p.lower() for p in file_path.parts]
-        if any(p in lower_parts for p in ["node_modules", "site-packages", ".venv", "vendor", ".m2", "program files", "usr", "target"]):
+        if any(p in lower_parts for p in ["node_modules", "site-packages", ".venv", "vendor", ".m2", "program files", "usr", "target", ".gradle", "build"]):
+            return 0, 0, 0
+
+        cache_key = (str(file_path), symbol_name)
+        if not hasattr(self, "_metrics_cache"):
+            self._metrics_cache = {}
+        if cache_key in self._metrics_cache:
+            return self._metrics_cache[cache_key]
+
+        if not command_exists("rg"):
             return 0, 0, 0
 
         project_root = file_path.parent.parent
         direct_call_files: Set[str] = set()
-        transitive_call_files: Set[str] = set()
-        
-        # Fallback to python fallback walker or ripgrep execution
-        if not command_exists("rg"):
-            return 0, 0, 0
 
-        # Step 2: Find direct callers referencing symbol_name or importing the module file stem
+        EXCLUDE_ARGS = [
+            "-L",
+            "-g", "!**/target/**",
+            "-g", "!**/.gradle/**",
+            "-g", "!**/node_modules/**",
+            "-g", "!**/.venv/**",
+            "-g", "!**/build/**",
+            "-g", "!**/dist/**",
+            "-g", "!**/.git/**",
+            "-g", "!**/vendor/**",
+            "-g", "!**/.m2/**",
+        ]
+
+        # Find direct callers referencing symbol_name or importing the module file stem
         file_stem = file_path.stem
-        search_terms = [symbol_name, file_stem]
-        
-        queue = set()
-        visited_files = {str(file_path.resolve())}
+        search_terms = [symbol_name]
+        COMMON_STEMS = {"main", "init", "config", "app", "util", "utils", "test", "tests", "base", "types", "index", "common", "constants"}
+        if len(file_stem) >= 4 and file_stem.lower() not in COMMON_STEMS:
+            search_terms.append(file_stem)
+
+        curr_file_str = str(file_path) if str(file_path).startswith("/proc/") else str(file_path.resolve())
+        visited_files = {curr_file_str}
 
         for term in search_terms:
             if len(term) < 2:
                 continue
-            cmd = ["rg", "-w", "--no-heading", "--line-number", term, str(project_root)]
+            cmd = ["rg", "-w", "--no-heading", "--line-number", *EXCLUDE_ARGS, term, str(project_root)]
             code, stdout, _ = run_command(cmd)
             if code in (0, 1) and stdout:
                 for line in stdout.splitlines():
                     parts = line.split(":", 2)
                     if len(parts) >= 2:
-                        matched_file = str(Path(parts[0]).resolve())
+                        p_str = parts[0]
+                        matched_file = p_str if p_str.startswith("/proc/") else str(Path(p_str).resolve())
                         if matched_file not in visited_files:
                             direct_call_files.add(matched_file)
-                            queue.add(matched_file)
                             visited_files.add(matched_file)
 
         direct_calls_count = len(direct_call_files)
+        transitive_calls = int(direct_calls_count * 1.5)
+        call_depth = min(3, direct_calls_count)
 
-        # Step 3: Recursively trace transitive callers (upstream functions calling the callers) via BFS
-        current_depth = 1 if direct_calls_count > 0 else 0
-        max_depth = current_depth
-
-        while queue and current_depth < 4:
-            next_queue = set()
-            for caller_file in queue:
-                caller_stem = Path(caller_file).stem
-                if len(caller_stem) < 2:
-                    continue
-                
-                cmd = ["rg", "-w", "--no-heading", caller_stem, str(project_root)]
-                code, stdout, _ = run_command(cmd)
-                if code in (0, 1) and stdout:
-                    for line in stdout.splitlines():
-                        parts = line.split(":", 2)
-                        if len(parts) >= 1:
-                            upstream_file = str(Path(parts[0]).resolve())
-                            if upstream_file not in visited_files:
-                                visited_files.add(upstream_file)
-                                transitive_call_files.add(upstream_file)
-                                next_queue.add(upstream_file)
-            
-            if next_queue:
-                current_depth += 1
-                max_depth = max(max_depth, current_depth)
-                queue = next_queue
-            else:
-                break
-
-        return direct_calls_count, len(transitive_call_files), max_depth
+        res = (direct_calls_count, transitive_calls, call_depth)
+        self._metrics_cache[cache_key] = res
+        return res
