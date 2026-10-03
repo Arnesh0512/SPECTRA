@@ -16,6 +16,26 @@ from spectra.utils.shell import command_exists, run_command
 from .base import SourceFinding
 
 
+def _resolve_root_context(project_root: Path) -> Path:
+    """Finds the root mount perimeter (container proc root, extracted container, or host mount)."""
+    parts = list(project_root.parts)
+    # 1. Linux proc container root (--pid=host)
+    if "proc" in parts and "root" in parts:
+        idx_proc = parts.index("proc")
+        if len(parts) > idx_proc + 2 and parts[idx_proc + 2] == "root":
+            return Path(*parts[:idx_proc + 3])
+    # 2. Extracted container filesystem
+    if "spectra_containers" in parts:
+        idx = parts.index("spectra_containers")
+        if len(parts) > idx + 1:
+            return Path(*parts[:idx + 2])
+    # 3. Mounted host filesystem (/scan)
+    if len(parts) >= 2 and parts[1] == "scan":
+        return Path("/scan")
+    # 4. Fallback anchor or filesystem root
+    return Path(project_root.anchor) if project_root.anchor else Path("/")
+
+
 class DependencyAnalyzer:
     """Analyzes installed dependency packages on disk to extract internal crypto usage and call mapping."""
 
@@ -33,6 +53,7 @@ class DependencyAnalyzer:
         norm_name = package_name.lower().replace("_", "-")
         manifest_dir = manifest_file.parent if manifest_file else project_root
         search_dirs = [manifest_dir, project_root] if manifest_dir != project_root else [project_root]
+        root_ctx = _resolve_root_context(project_root)
 
         if ecosystem in ["javascript", "typescript", "javascript_or_typescript"]:
             for d in search_dirs:
@@ -48,6 +69,8 @@ class DependencyAnalyzer:
                 py_names.extend(["jwt"])
             elif norm_name == "pydantic":
                 py_names.extend(["pydantic"])
+            elif norm_name == "cryptography":
+                py_names.extend(["cryptography"])
 
             # 1. Check local virtual environments in subproject or root
             for d in search_dirs:
@@ -62,7 +85,58 @@ class DependencyAnalyzer:
                                     if cand.exists():
                                         return cand
 
-            # 2. Check active python environment site-packages
+            # 2. Check container/host system & venv site-packages
+            site_candidates = []
+            for v_root in [root_ctx / "opt" / "venv", root_ctx / "venv"]:
+                if v_root.is_dir():
+                    lib_dir = v_root / "lib"
+                    if lib_dir.is_dir():
+                        try:
+                            for py_sub in lib_dir.glob("python*"):
+                                sp = py_sub / "site-packages"
+                                if sp.is_dir():
+                                    site_candidates.append(sp)
+                        except Exception:
+                            pass
+
+            for sys_lib in [root_ctx / "usr" / "local" / "lib", root_ctx / "usr" / "lib"]:
+                if sys_lib.is_dir():
+                    try:
+                        for py_sub in sys_lib.glob("python*"):
+                            for sub_name in ["site-packages", "dist-packages"]:
+                                sp = py_sub / sub_name
+                                if sp.is_dir():
+                                    site_candidates.append(sp)
+                    except Exception:
+                        pass
+
+            home_candidates = [root_ctx / "root"]
+            if (root_ctx / "home").is_dir():
+                try:
+                    for u in (root_ctx / "home").iterdir():
+                        if u.is_dir():
+                            home_candidates.append(u)
+                except Exception:
+                    pass
+
+            for u_home in home_candidates:
+                local_lib = u_home / ".local" / "lib"
+                if local_lib.is_dir():
+                    try:
+                        for py_sub in local_lib.glob("python*"):
+                            sp = py_sub / "site-packages"
+                            if sp.is_dir():
+                                site_candidates.append(sp)
+                    except Exception:
+                        pass
+
+            for sp in site_candidates:
+                for name in py_names:
+                    cand = sp / name
+                    if cand.exists():
+                        return cand
+
+            # 3. Check active python environment site-packages (fallback)
             try:
                 dist = importlib.metadata.distribution(package_name)
                 for path in dist.files or []:
@@ -77,7 +151,7 @@ class DependencyAnalyzer:
                 sp_path = Path(sp)
                 for name in py_names:
                     cand = sp_path / name
-                    if cand.is_dir():
+                    if cand.exists():
                         return cand
 
         elif ecosystem == "go":
@@ -86,24 +160,79 @@ class DependencyAnalyzer:
                 if vendor_mod.is_dir():
                     return vendor_mod
 
-            gopath = Path.home() / "go" / "pkg" / "mod"
-            if gopath.is_dir():
-                for mod_dir in gopath.glob(f"{package_name}@*"):
-                    if mod_dir.is_dir():
-                        return mod_dir
+            gopath_candidates = [
+                root_ctx / "go" / "pkg" / "mod",
+                root_ctx / "root" / "go" / "pkg" / "mod",
+                Path.home() / "go" / "pkg" / "mod",
+            ]
+            if (root_ctx / "home").is_dir():
+                try:
+                    for u in (root_ctx / "home").iterdir():
+                        if u.is_dir():
+                            gopath_candidates.append(u / "go" / "pkg" / "mod")
+                except Exception:
+                    pass
+
+            for gopath in gopath_candidates:
+                if gopath.is_dir():
+                    parent_pkg = gopath / Path(package_name).parent
+                    pkg_base = Path(package_name).name
+                    if parent_pkg.is_dir():
+                        try:
+                            for mod_dir in parent_pkg.glob(f"{pkg_base}@*"):
+                                if mod_dir.is_dir():
+                                    return mod_dir
+                        except Exception:
+                            pass
+                    direct_mod = gopath / package_name
+                    if direct_mod.is_dir():
+                        return direct_mod
 
         elif ecosystem in ["java", "kotlin", "jvm"]:
-            # e.g., org.bouncycastle:bcprov-jdk18on or com.google.crypto.tink:tink
             parts = package_name.split(":")
             if len(parts) == 2:
                 group, artifact = parts
                 rel = Path(group.replace(".", "/")) / artifact
-                m2_dir = Path.home() / ".m2" / "repository" / rel
-                if m2_dir.is_dir():
-                    jars = [j for j in m2_dir.rglob("*.jar") if not j.name.endswith("-sources.jar") and not j.name.endswith("-javadoc.jar")]
-                    if jars:
-                        return jars[0]
-                    return m2_dir
+                m2_candidates = [
+                    root_ctx / "root" / ".m2" / "repository" / rel,
+                    Path.home() / ".m2" / "repository" / rel,
+                ]
+                if (root_ctx / "home").is_dir():
+                    try:
+                        for u in (root_ctx / "home").iterdir():
+                            if u.is_dir():
+                                m2_candidates.append(u / ".m2" / "repository" / rel)
+                    except Exception:
+                        pass
+
+                for m2_dir in m2_candidates:
+                    if m2_dir.is_dir():
+                        jars = [j for j in m2_dir.rglob("*.jar") if not j.name.endswith("-sources.jar") and not j.name.endswith("-javadoc.jar")]
+                        if jars:
+                            return jars[0]
+                        return m2_dir
+
+                gradle_candidates = [
+                    root_ctx / "root" / ".gradle" / "caches" / "modules-2" / "files-2.1" / group / artifact,
+                    Path.home() / ".gradle" / "caches" / "modules-2" / "files-2.1" / group / artifact,
+                ]
+                if (root_ctx / "home").is_dir():
+                    try:
+                        for u in (root_ctx / "home").iterdir():
+                            if u.is_dir():
+                                gradle_candidates.append(u / ".gradle" / "caches" / "modules-2" / "files-2.1" / group / artifact)
+                    except Exception:
+                        pass
+                for d in search_dirs:
+                    gradle_candidates.append(d / ".gradle" / "caches" / "modules-2" / "files-2.1" / group / artifact)
+
+                for g_dir in gradle_candidates:
+                    if g_dir.is_dir():
+                        jars = [j for j in g_dir.rglob("*.jar") if not j.name.endswith("-sources.jar") and not j.name.endswith("-javadoc.jar")]
+                        if jars:
+                            return jars[0]
+                        return g_dir
+
             for d in search_dirs:
                 for sub in ["target", "build/libs", "lib", "libs"]:
                     cand_dir = d / sub
@@ -117,7 +246,6 @@ class DependencyAnalyzer:
                 vendor_crate = d / "vendor" / package_name
                 if vendor_crate.is_dir():
                     return vendor_crate
-                # Check target build artifacts (.rmeta / .rlib)
                 crate_norm = package_name.lower().replace("-", "_")
                 for profile in ["debug", "release"]:
                     deps_dir = d / "target" / profile / "deps"
@@ -128,14 +256,32 @@ class DependencyAnalyzer:
                         rlibs = list(deps_dir.glob(f"lib{crate_norm}-*.rlib"))
                         if rlibs:
                             return rlibs[0]
-            cargo_reg = Path.home() / ".cargo" / "registry" / "src"
-            if cargo_reg.is_dir():
-                for m in cargo_reg.rglob(f"{package_name}-*"):
-                    if m.is_dir():
-                        return m
+
+            cargo_candidates = [
+                root_ctx / "usr" / "local" / "cargo" / "registry" / "src",
+                root_ctx / "root" / ".cargo" / "registry" / "src",
+                Path.home() / ".cargo" / "registry" / "src",
+            ]
+            if (root_ctx / "home").is_dir():
+                try:
+                    for u in (root_ctx / "home").iterdir():
+                        if u.is_dir():
+                            cargo_candidates.append(u / ".cargo" / "registry" / "src")
+                except Exception:
+                    pass
+
+            for cargo_reg in cargo_candidates:
+                if cargo_reg.is_dir():
+                    try:
+                        for reg_index in cargo_reg.iterdir():
+                            if reg_index.is_dir():
+                                for m in reg_index.glob(f"{package_name}-*"):
+                                    if m.is_dir():
+                                        return m
+                    except Exception:
+                        pass
 
         elif ecosystem in ["c", "cpp", "c++"]:
-            # 1. Local project vcpkg or conan
             for d in search_dirs:
                 for sub in ["vcpkg_installed", "build/vcpkg_installed", "installed"]:
                     vcpkg_inc = d / sub
@@ -147,7 +293,6 @@ class DependencyAnalyzer:
                             if (inc / package_name).is_dir():
                                 return inc / package_name
 
-            # 2. Check CMake build cache
             for d in search_dirs:
                 cmake_cache = d / "build" / "CMakeCache.txt"
                 if cmake_cache.is_file():
@@ -161,8 +306,14 @@ class DependencyAnalyzer:
                     except Exception:
                         pass
 
-            # 3. Check system / known install locations (e.g. OpenSSL on Windows)
             if norm_name == "openssl":
+                for cand in [
+                    root_ctx / "usr" / "include" / "openssl",
+                    root_ctx / "usr" / "local" / "include" / "openssl",
+                ]:
+                    if cand.is_dir():
+                        return cand
+
                 env_openssl = os.environ.get("OPENSSL_ROOT_DIR") or os.environ.get("OPENSSL_DIR")
                 if env_openssl and Path(env_openssl).exists():
                     inc = Path(env_openssl) / "include" / "openssl"
