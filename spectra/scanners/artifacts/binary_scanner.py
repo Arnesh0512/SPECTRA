@@ -80,13 +80,19 @@ class BinaryScanner:
         excluded = set(excluded_dirs or [])
 
         bin_files: List[Path] = []
-        for path in target_dir.rglob("*"):
-            if not path.is_file():
-                continue
-            if any(part in excluded for part in path.parts):
-                continue
-            if path.suffix.lower() in self.BINARY_EXTENSIONS and self._is_binary_file(path):
-                bin_files.append(path)
+        import os
+        try:
+            for root, dirs, files in os.walk(str(target_dir)):
+                dirs[:] = [
+                    d for d in dirs
+                    if d not in excluded and not any(part in excluded for part in Path(root, d).parts)
+                ]
+                for file_name in files:
+                    p = Path(root) / file_name
+                    if p.suffix.lower() in self.BINARY_EXTENSIONS and self._is_binary_file(p):
+                        bin_files.append(p)
+        except Exception:
+            pass
 
         total_bins = len(bin_files)
         for idx, path in enumerate(bin_files, start=1):

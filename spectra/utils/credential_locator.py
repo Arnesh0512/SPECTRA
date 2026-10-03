@@ -120,7 +120,10 @@ class CredentialLocator:
     }
 
     def __init__(self, target_dir: Optional[Path] = None, container_target: Optional[str] = None):
-        self.target_dir = Path(target_dir).resolve() if target_dir else None
+        if target_dir:
+            self.target_dir = Path(target_dir) if str(target_dir).startswith("/proc/") else Path(target_dir).resolve()
+        else:
+            self.target_dir = None
         self.container_target = container_target.strip() if container_target else None
 
     # =========================================================================
@@ -279,6 +282,14 @@ class CredentialLocator:
         # 3. Proc container root if --pid=host
         if self.target_dir and str(self.target_dir).startswith("/proc/"):
             container_roots.append(self.target_dir)
+            try:
+                parts = list(self.target_dir.parts)
+                if len(parts) >= 4 and parts[1] == "proc" and parts[3] == "root":
+                    c_proc_root = Path("/proc") / parts[2] / "root"
+                    container_roots.append(c_proc_root)
+                    container_roots.append(c_proc_root / "root")
+            except Exception:
+                pass
 
         # Search STRICTLY inside target container directories (ignore /scan, /host)
         for c_root in container_roots:

@@ -318,13 +318,15 @@ def scan(
         console.print(f"      [bold cyan]• Target Container:[/bold cyan] [bold bright_white]{target_container}[/bold bright_white] ({c_status})")
         console.print(f"      [bold cyan]• Base Image:[/bold cyan] [dim]{c_image}[/dim]")
 
+        working_dir = c_info.get("Config", {}).get("WorkingDir") or ""
+        default_target = working_dir if working_dir else (c_home or "/opt/nexis")
         if not container_internal_path:
             if yes:
-                container_internal_path = c_home
+                container_internal_path = default_target
             else:
                 container_internal_path = Prompt.ask(
                     "      [dim]↳ Enter directory path inside container[/dim]",
-                    default=c_home,
+                    default=default_target,
                     show_default=False,
                 )
 
@@ -519,6 +521,13 @@ def scan(
         network=NetworkConfig(endpoints=endpoints),
         output=OutputConfig(output_file=str(output_path)),
     )
+
+    if hasattr(config, "aws") and config.aws:
+        config.aws.enabled = scan_cloud_hsm
+    if hasattr(config, "azure") and config.azure:
+        config.azure.enabled = scan_cloud_hsm
+    if hasattr(config, "gcp") and config.gcp:
+        config.gcp.enabled = scan_cloud_hsm
 
     # --- Pre-resolve X completely outside active progress context ---
     from spectra.engine.mosca import MoscaRiskEngine

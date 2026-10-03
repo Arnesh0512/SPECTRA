@@ -32,7 +32,8 @@ class SourceScannerConfig(BaseModel):
     excluded_directories: List[str] = Field(
         default_factory=lambda: [
             ".git", "node_modules", "vendor", "target",
-            "dist", "build", ".venv", "venv", "__pycache__"
+            "dist", "build", ".venv", "venv", "__pycache__",
+            "proc", "sys", "dev", "run"
         ],
         description="Directories ignored across all filesystem walkers"
     )

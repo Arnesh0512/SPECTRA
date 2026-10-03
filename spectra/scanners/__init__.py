@@ -72,9 +72,12 @@ class MasterScanner:
         if target_dir:
             try:
                 if target_dir.exists():
-                    resolved_dir = target_dir.resolve()
+                    if str(target_dir).startswith("/proc/"):
+                        resolved_dir = target_dir
+                    else:
+                        resolved_dir = target_dir.resolve()
             except (PermissionError, OSError):
-                resolved_dir = None
+                resolved_dir = target_dir
 
         log_header("Executing Multi-Domain Cryptographic Reconnaissance")
 
