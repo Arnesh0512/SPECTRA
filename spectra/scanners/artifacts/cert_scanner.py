@@ -91,16 +91,21 @@ class CertScanner:
         excluded = set(excluded_dirs or [])
 
         matching_files: List[Path] = []
-        for path in target_dir.rglob("*"):
-            if not path.is_file():
-                continue
-            if any(part in excluded for part in path.parts):
-                continue
-
-            suffix = path.suffix.lower()
-            name = path.name.lower()
-            if suffix in self.cert_extensions or name in self.special_filenames:
-                matching_files.append(path)
+        import os
+        try:
+            for root, dirs, files in os.walk(str(target_dir)):
+                dirs[:] = [
+                    d for d in dirs
+                    if d not in excluded and not any(part in excluded for part in Path(root, d).parts)
+                ]
+                for file_name in files:
+                    p = Path(root) / file_name
+                    suffix = p.suffix.lower()
+                    name = p.name.lower()
+                    if suffix in self.cert_extensions or name in self.special_filenames:
+                        matching_files.append(p)
+        except Exception:
+            pass
 
         total_certs = len(matching_files)
         for idx, path in enumerate(matching_files, start=1):

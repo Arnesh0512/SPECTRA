@@ -80,6 +80,7 @@ class DockerContainerClient:
         container_id_or_name: str,
         container_path: str,
         dest_dir: Optional[Path] = None,
+        reset_dest: bool = True,
     ) -> Path:
         """
         Extracts a path from inside a running container using Docker Archive API.
@@ -105,8 +106,8 @@ class DockerContainerClient:
             if dest_dir is None:
                 dest_dir = Path("/tmp/spectra_containers") / clean_name
 
-            # Reset destination folder to guarantee fresh sync
-            if dest_dir.exists():
+            # Reset destination folder if requested
+            if reset_dest and dest_dir.exists():
                 shutil.rmtree(dest_dir, ignore_errors=True)
             dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -135,24 +136,51 @@ class DockerContainerClient:
     ) -> Tuple[Path, Dict[str, Any]]:
         """
         Resolves the filesystem path for the target container.
-        1. If host PID tree (/proc/<pid>/root) is accessible, binds directly with zero copy.
-        2. Otherwise, transparently streams the directory tarball via Docker Archive API.
+        1. Fast-path (--pid=host): If host PID tree (/proc/<pid>/root) is accessible,
+           binds directly to the whole container filesystem with zero copy and instant access.
+        2. Fallback: Streams the container filesystem archive via Docker Archive API.
         """
         info = self.get_container_info(container_id_or_name)
         pid = info.get("State", {}).get("Pid", 0)
 
-        # Dynamically default to the container's configured home/working directory
-        if not container_path:
-            container_path = info.get("Config", {}).get("WorkingDir") or "/"
+        target_subpath = (container_path or "/").strip()
+        if not target_subpath:
+            target_subpath = "/"
 
-        # 1. Fast-path: Check if direct host proc filesystem is mounted and accessible
+        # 1. Fast-path: Check if direct host proc filesystem is accessible via --pid=host
         if pid > 0:
-            proc_root_path = Path(f"/proc/{pid}/root{container_path}")
+            proc_root_path = Path(f"/proc/{pid}/root")
             if proc_root_path.exists() and os.access(proc_root_path, os.R_OK):
                 logger.info(f"Direct host proc perimeter active at {proc_root_path} (PID: {pid})")
+                if target_subpath in ("", "/"):
+                    return proc_root_path, info
+                sub_target = Path(f"/proc/{pid}/root/{target_subpath.lstrip('/')}")
+                if sub_target.exists():
+                    return sub_target, info
                 return proc_root_path, info
 
-        # 2. Archive API streaming fallback (100% reliable across any Docker setup)
-        logger.info(f"Extracting container archive for {container_id_or_name}:{container_path}")
-        extracted_path = self.extract_container_path(container_id_or_name, container_path)
+        # 2. Archive API streaming fallback (when running without --pid=host)
+        clean_name = container_id_or_name.replace("/", "_").strip("_")
+        staging_root = Path("/tmp/spectra_containers") / clean_name
+
+        if staging_root.exists():
+            shutil.rmtree(staging_root, ignore_errors=True)
+        staging_root.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Extracting container archive for {container_id_or_name}:{target_subpath}")
+        extracted_path = self.extract_container_path(
+            container_id_or_name, target_subpath, dest_dir=staging_root, reset_dest=False
+        )
+
+        # Also extract container's user home /root for credentials if container_path is not / or /root
+        clean_path = target_subpath.rstrip("/")
+        if clean_path not in ("", "/", "/root"):
+            for cred_path in ["/root", "/home"]:
+                try:
+                    self.extract_container_path(
+                        container_id_or_name, cred_path, dest_dir=staging_root, reset_dest=False
+                    )
+                except Exception:
+                    pass
+
         return extracted_path, info

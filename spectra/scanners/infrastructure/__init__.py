@@ -71,6 +71,16 @@ class InfrastructureScanOrchestrator:
                 except Exception:
                     pass
 
+            if creds.has_aws:
+                if hasattr(self.config, "aws") and self.config.aws:
+                    self.config.aws.enabled = True
+            if creds.has_azure:
+                if hasattr(self.config, "azure") and self.config.azure:
+                    self.config.azure.enabled = True
+            if creds.has_gcp:
+                if hasattr(self.config, "gcp") and self.config.gcp:
+                    self.config.gcp.enabled = True
+
             if creds.has_aws or creds.has_azure or creds.has_gcp:
                 user_info = f"user '{creds.detected_user}'" if creds.detected_user else "environment"
                 os_info = f"on {creds.detected_os}" if creds.detected_os else ""

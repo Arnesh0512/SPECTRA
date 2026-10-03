@@ -83,13 +83,19 @@ class ContainerScanner:
         excluded = set(excluded_dirs or [])
 
         container_files: List[Path] = []
-        for path in target_dir.rglob("*"):
-            if not path.is_file():
-                continue
-            if any(part in excluded for part in path.parts):
-                continue
-            if path.name.lower() in self.dockerfile_names or path.suffix.lower() in self.dockerfile_extensions:
-                container_files.append(path)
+        import os
+        try:
+            for root, dirs, files in os.walk(str(target_dir)):
+                dirs[:] = [
+                    d for d in dirs
+                    if d not in excluded and not any(part in excluded for part in Path(root, d).parts)
+                ]
+                for file_name in files:
+                    p = Path(root) / file_name
+                    if p.name.lower() in self.dockerfile_names or p.suffix.lower() in self.dockerfile_extensions:
+                        container_files.append(p)
+        except Exception:
+            pass
 
         total_cnt = len(container_files)
         for idx, path in enumerate(container_files, start=1):

@@ -186,10 +186,11 @@ class DependencyScanner:
 
     def _build_analysis_finding(self, res: Dict[str, Any], root: Path, file: Path, ecosystem: str = "dependency") -> SourceFinding:
         """Constructs an enriched finding with internal encryption and call graph metrics (Step 4)."""
+        file_p = str(file) if str(file).startswith("/proc/") else str(file.resolve())
         return SourceFinding(
             source_domain="source_code",
             language=ecosystem,
-            file_path=str(file.resolve()),
+            file_path=file_p,
             line_number=res.get("line_number", 1),
             column_number=1,
             code_snippet=f"Module: {res['module_name']} | Function: {res['function_called']} | Internal Crypto: {res['encryption_internally']}",
@@ -218,7 +219,8 @@ class DependencyScanner:
         )
 
     def _build_finding(self, raw: Dict[str, Any], ecosystem: str, root: Path, file: Path) -> SourceFinding:
-        rel_path = str(file.relative_to(root).as_posix()) if file.is_relative_to(root) else str(file.resolve())
+        file_p = str(file) if str(file).startswith("/proc/") else str(file.resolve())
+        rel_path = str(file.relative_to(root).as_posix()) if file.is_relative_to(root) else file_p
         line_num = int(raw.get("line") or 1)
         pkg_name = str(raw["name"])
         version = raw.get("version")
@@ -238,7 +240,7 @@ class DependencyScanner:
         return SourceFinding(
             source_domain="source_code",
             language=ecosystem,
-            file_path=str(file.resolve()),
+            file_path=file_p,
             line_number=line_num,
             column_number=1,
             code_snippet=f"[{ecosystem}] {pkg_name} ({version or 'any'}) [{raw.get('relationship', 'direct')}]",
