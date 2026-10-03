@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from spectra.config import ScanConfig
 from spectra.utils.logger import log_info, log_step, log_warning
+from spectra.utils.credential_locator import get_credential_locator
 
 from .aws_scanner import AWSFinding, AWSScanner
 from .azure_scanner import AzureFinding, AzureScanner
@@ -43,8 +44,43 @@ class InfrastructureScanOrchestrator:
         gcp_locs = getattr(gcp_cfg, "locations", ["global"]) if gcp_cfg else ["global"]
         self.gcp_scanner = GCPScanner(project_id=gcp_proj, locations=gcp_locs)
 
+    def _resolve_mounted_credentials(self, target_dir: Optional[Path]) -> None:
+        """Auto-resolves credentials across Linux/WSL (/home/<user>), Windows (Users/<user>),
+        and macOS mounted into container perimeters or running natively."""
+        try:
+            import os
+            import configparser
+            container_target = getattr(getattr(self.config, "scan_targets", None), "container_target", None)
+            locator = get_credential_locator(target_dir=target_dir, container_target=container_target)
+            creds = locator.discover()
+            locator.bind_environment(creds)
+
+            # Propagate AWS region from config file if available
+            if creds.aws_config_file and creds.aws_config_file.exists():
+                try:
+                    cp = configparser.ConfigParser()
+                    cp.read(creds.aws_config_file)
+                    if cp.has_section("default") and "region" in cp["default"]:
+                        reg = cp["default"]["region"].strip()
+                        if reg:
+                            os.environ["AWS_DEFAULT_REGION"] = reg
+                            os.environ["AWS_REGION"] = reg
+                            if hasattr(self, "aws_scanner"):
+                                if reg not in self.aws_scanner.regions:
+                                    self.aws_scanner.regions.insert(0, reg)
+                except Exception:
+                    pass
+
+            if creds.has_aws or creds.has_azure or creds.has_gcp:
+                user_info = f"user '{creds.detected_user}'" if creds.detected_user else "environment"
+                os_info = f"on {creds.detected_os}" if creds.detected_os else ""
+                log_info(f"Dynamic host credentials resolved for {user_info} {os_info}")
+        except Exception as ex:
+            log_warning(f"Could not auto-resolve host credentials: {ex}")
+
     def scan(self, target_dir: Optional[Path] = None, progress_callback: Optional[Callable[[str, float], None]] = None) -> List[Dict[str, Any]]:
         """Scans local Terraform directories, IaC manifests, host hardware, AWS, and Azure cloud environments."""
+        self._resolve_mounted_credentials(target_dir)
         all_findings: List[Dict[str, Any]] = []
         excluded = self.config.source_scanner.excluded_directories
 

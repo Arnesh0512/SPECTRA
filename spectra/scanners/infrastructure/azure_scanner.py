@@ -77,24 +77,82 @@ class AzureScanner:
 
         findings: List[AzureFinding] = []
         try:
-            import os, subprocess, shutil
+            import os, json, subprocess, shutil
+            from pathlib import Path
             from azure.identity import AzureCliCredential
+            from azure.core.credentials import AccessToken
 
-            # Resolve credential (prefer AzureCliCredential if CLI is logged in)
+            class DualTokenCredential:
+                def __init__(self, token_data: Dict[str, Any]):
+                    self.data = token_data
+
+                def get_token(self, *scopes, **kwargs) -> AccessToken:
+                    scope_str = " ".join(scopes).lower()
+                    if "vault" in scope_str:
+                        t = self.data.get("vault") or self.data.get("management") or self.data
+                    else:
+                        t = self.data.get("management") or self.data
+                    tok = t.get("accessToken") if isinstance(t, dict) else str(t)
+                    exp = t.get("expires_on", 1890000000) if isinstance(t, dict) else 1890000000
+                    return AccessToken(tok, exp)
+
             credential = None
-            try:
-                cli_cred = AzureCliCredential()
-                cli_cred.get_token("https://management.azure.com/.default")
-                credential = cli_cred
-            except Exception:
+            sub_id = self.subscription_id or os.environ.get("AZURE_SUBSCRIPTION_ID")
+
+            # 1. Try CLI credential first if az command is present (auto-refreshes tokens via MSAL cache)
+            if shutil.which("az"):
+                try:
+                    cli_cred = AzureCliCredential()
+                    cli_cred.get_token("https://management.azure.com/.default")
+                    credential = cli_cred
+                except Exception:
+                    pass
+
+            # 2. Try saved access tokens from accessTokens.json (used inside containers where az CLI is absent)
+            if not credential:
+                token_candidates = [
+                    Path(os.environ.get("AZURE_CONFIG_DIR", "")) / "accessTokens.json",
+                    Path.home() / ".azure" / "accessTokens.json",
+                    Path("/scan/home/ArneshArchWSL/.azure/accessTokens.json"),
+                ]
+                for tc in token_candidates:
+                    if tc.exists():
+                        try:
+                            t_data = json.loads(tc.read_text(encoding="utf-8-sig"))
+                            credential = DualTokenCredential(t_data)
+                            if not sub_id:
+                                sub_id = t_data.get("subscription")
+                            break
+                        except Exception:
+                            pass
+
+            # 3. Fall back to DefaultAzureCredential
+            if not credential:
                 credential = DefaultAzureCredential()
 
-            # Resolve active subscription ID
-            sub_id = self.subscription_id or os.environ.get("AZURE_SUBSCRIPTION_ID")
+            # 4. Resolve active subscription ID from azureProfile.json if still unset
             if not sub_id:
+                profile_candidates = [
+                    Path(os.environ.get("AZURE_CONFIG_DIR", "")) / "azureProfile.json",
+                    Path.home() / ".azure" / "azureProfile.json",
+                    Path("/scan/home/ArneshArchWSL/.azure/azureProfile.json"),
+                ]
+                for pf in profile_candidates:
+                    if pf.exists():
+                        try:
+                            pdata = json.loads(pf.read_text(encoding="utf-8-sig"))
+                            for s in pdata.get("subscriptions", []):
+                                if s.get("id"):
+                                    sub_id = s.get("id")
+                                    break
+                            if sub_id:
+                                break
+                        except Exception:
+                            pass
+
+            if not sub_id and shutil.which("az"):
                 try:
-                    az_bin = shutil.which("az") or "az"
-                    res = subprocess.run([az_bin, "account", "show", "--query", "id", "-o", "tsv"], capture_output=True, text=True, timeout=5, shell=True)
+                    res = subprocess.run(["az", "account", "show", "--query", "id", "-o", "tsv"], capture_output=True, text=True, timeout=5, shell=True)
                     if res.returncode == 0 and res.stdout.strip():
                         sub_id = res.stdout.strip()
                 except Exception:
@@ -106,7 +164,20 @@ class AzureScanner:
             mgmt_client = KeyVaultManagementClient(credential, subscription_id=sub_id)
             
             # List all Key Vaults in the subscription/tenant
-            vaults = mgmt_client.vaults.list()
+            try:
+                vaults = list(mgmt_client.vaults.list())
+            except Exception:
+                # If accessTokens.json or initial credential failed (e.g. expired token), fall back to az CLI if available
+                if shutil.which("az") and not isinstance(credential, AzureCliCredential):
+                    try:
+                        credential = AzureCliCredential()
+                        mgmt_client = KeyVaultManagementClient(credential, subscription_id=sub_id)
+                        vaults = list(mgmt_client.vaults.list())
+                    except Exception:
+                        vaults = []
+                else:
+                    vaults = []
+
             for vault in vaults:
                 vault_name = vault.name
                 vault_uri = f"https://{vault_name}.vault.azure.net/"

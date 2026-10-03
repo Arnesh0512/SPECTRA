@@ -27,6 +27,11 @@ from .docker_client import (
     DockerContainerClient,
     UnixSocketHTTPConnection,
 )
+from .credential_locator import (
+    CredentialLocator,
+    DiscoveredCredentials,
+    get_credential_locator,
+)
 
 __all__ = [
     "console",
@@ -46,4 +51,7 @@ __all__ = [
     "extract_printable_strings",
     "DockerContainerClient",
     "UnixSocketHTTPConnection",
+    "CredentialLocator",
+    "DiscoveredCredentials",
+    "get_credential_locator",
 ]

@@ -92,7 +92,15 @@ class GCPScanner:
     def is_available(self) -> bool:
         """Returns True if gcloud CLI or GCP credentials exist."""
         has_cli = self._resolve_gcloud() is not None
-        has_adc = (Path(os.environ.get("APPDATA", "")) / "gcloud" / "application_default_credentials.json").exists()
+        adc_candidates = [
+            Path(os.environ.get("APPDATA", "")) / "gcloud" / "application_default_credentials.json",
+            Path.home() / ".config" / "gcloud" / "application_default_credentials.json",
+        ]
+        google_app_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        if google_app_creds:
+            adc_candidates.append(Path(google_app_creds))
+
+        has_adc = any(p.exists() for p in adc_candidates if str(p).strip())
         return has_cli or has_adc
 
     def _get_active_project(self) -> Optional[str]:
@@ -101,6 +109,22 @@ class GCPScanner:
         env_proj = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCP_PROJECT")
         if env_proj:
             return env_proj
+
+        # Check ADC JSON credential files for quota_project_id or project_id
+        adc_candidates = [
+            os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"),
+            str(Path(os.environ.get("APPDATA", "")) / "gcloud" / "application_default_credentials.json"),
+            str(Path.home() / ".config" / "gcloud" / "application_default_credentials.json"),
+        ]
+        for c in adc_candidates:
+            if c and Path(c).exists():
+                try:
+                    data = json.loads(Path(c).read_text(encoding="utf-8"))
+                    proj = data.get("quota_project_id") or data.get("project_id")
+                    if proj:
+                        return proj
+                except Exception:
+                    pass
 
         gcloud = self._resolve_gcloud()
         if gcloud:
@@ -120,13 +144,89 @@ class GCPScanner:
                 pass
         return None
 
+    def _get_adc_token_and_project(self) -> tuple[Optional[str], Optional[str]]:
+        """Extracts access token and project from ADC credentials file using token endpoint."""
+        adc_candidates = [
+            os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"),
+            str(Path(os.environ.get("APPDATA", "")) / "gcloud" / "application_default_credentials.json"),
+            str(Path.home() / ".config" / "gcloud" / "application_default_credentials.json"),
+            "/scan/home/ArneshArchWSL/.config/gcloud/application_default_credentials.json",
+        ]
+        for c in adc_candidates:
+            if c and Path(c).exists():
+                try:
+                    data = json.loads(Path(c).read_text(encoding="utf-8"))
+                    proj = self.project_id or data.get("quota_project_id") or data.get("project_id")
+                    if "refresh_token" in data and "client_id" in data:
+                        import requests
+                        resp = requests.post(
+                            "https://oauth2.googleapis.com/token",
+                            data={
+                                "client_id": data["client_id"],
+                                "client_secret": data.get("client_secret", ""),
+                                "refresh_token": data["refresh_token"],
+                                "grant_type": "refresh_token",
+                            },
+                            timeout=10,
+                        )
+                        if resp.status_code == 200:
+                            tok = resp.json().get("access_token")
+                            return tok, proj
+                except Exception:
+                    pass
+        return None, self._get_active_project()
+
+    def _scan_via_rest(self, token: str, project: str) -> List[GCPFinding]:
+        """Discovers KeyRings and CryptoKeys directly via Google Cloud KMS REST API."""
+        import requests
+        findings: List[GCPFinding] = []
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        }
+
+        for loc in self.locations:
+            try:
+                url = f"https://cloudkms.googleapis.com/v1/projects/{project}/locations/{loc}/keyRings"
+                resp = requests.get(url, headers=headers, timeout=10)
+                if resp.status_code != 200:
+                    continue
+                keyrings = resp.json().get("keyRings", [])
+
+                for kr in keyrings:
+                    kr_name = kr.get("name", "")
+                    kr_id = kr_name.split("/")[-1] if "/" in kr_name else kr_name
+
+                    k_url = f"https://cloudkms.googleapis.com/v1/projects/{project}/locations/{loc}/keyRings/{kr_id}/cryptoKeys"
+                    k_resp = requests.get(k_url, headers=headers, timeout=10)
+                    if k_resp.status_code != 200:
+                        continue
+                    keys = k_resp.json().get("cryptoKeys", [])
+
+                    for k in keys:
+                        finding = self._evaluate_crypto_key(k, project, loc, kr_id)
+                        if finding:
+                            findings.append(finding)
+            except Exception:
+                continue
+
+        return findings
+
     def scan(self) -> List[GCPFinding]:
         """Discovers KMS KeyRings and inspects CryptoKeys across configured locations."""
+        # 1. Try direct HTTPS REST API using ADC credentials first (works without gcloud CLI)
+        token, project = self._get_adc_token_and_project()
+        if token and project:
+            rest_findings = self._scan_via_rest(token, project)
+            if rest_findings:
+                return rest_findings
+
+        # 2. Fall back to gcloud CLI if available
         gcloud = self._resolve_gcloud()
         if not gcloud:
             return []
 
-        project = self._get_active_project()
+        project = project or self._get_active_project()
         findings: List[GCPFinding] = []
 
         for loc in self.locations:
@@ -147,7 +247,6 @@ class GCPScanner:
 
                 for kr in keyrings:
                     kr_name = kr.get("name", "")
-                    # Extract ring ID from "projects/.../locations/.../keyRings/nexis-keyring"
                     kr_id = kr_name.split("/")[-1] if "/" in kr_name else kr_name
 
                     # 2. List CryptoKeys in KeyRing
