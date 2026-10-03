@@ -108,7 +108,61 @@ class AzureScanner:
                 except Exception:
                     pass
 
-            # 2. Try saved access tokens from accessTokens.json (used inside containers where az CLI is absent)
+            # 2. Try environment variables (e.g. from container proc/environ, .env, or CLI flags)
+            if not credential:
+                cid = os.environ.get("AZURE_CLIENT_ID")
+                csecret = os.environ.get("AZURE_CLIENT_SECRET")
+                tid = os.environ.get("AZURE_TENANT_ID")
+                if cid and csecret and tid:
+                    from azure.identity import ClientSecretCredential
+                    credential = ClientSecretCredential(tenant_id=tid, client_id=cid, client_secret=csecret)
+                    if not sub_id:
+                        sub_id = os.environ.get("AZURE_SUBSCRIPTION_ID")
+
+            # 3. Try Service Principal credentials from credentials.json or any JSON in .azure containing SP keys
+            if not credential:
+                az_dirs = []
+                if os.environ.get("AZURE_CONFIG_DIR"):
+                    p_cfg = Path(os.environ["AZURE_CONFIG_DIR"])
+                    if p_cfg.is_dir():
+                        az_dirs.append(p_cfg)
+                    elif p_cfg.is_file() and p_cfg.parent.is_dir():
+                        az_dirs.append(p_cfg.parent)
+                az_dirs.extend([
+                    Path.home() / ".azure",
+                    Path("/scan/home/ArneshArchWSL/.azure")
+                ])
+
+                sp_candidates = []
+                for d in az_dirs:
+                    if d.is_dir():
+                        sp_candidates.extend([d / "credentials.json", d / "service_principal.json"])
+                        try:
+                            # Dynamic search: check any JSON file in .azure containing SP key-values
+                            for f in d.glob("*.json"):
+                                if f not in sp_candidates and f.name not in ("azureProfile.json", "accessTokens.json"):
+                                    sp_candidates.append(f)
+                        except Exception:
+                            pass
+
+                for sc in sp_candidates:
+                    if sc.exists() and sc.is_file():
+                        try:
+                            sp_data = json.loads(sc.read_text(encoding="utf-8-sig"))
+                            if isinstance(sp_data, dict):
+                                cid = sp_data.get("clientId") or sp_data.get("appId")
+                                csecret = sp_data.get("clientSecret") or sp_data.get("password")
+                                tid = sp_data.get("tenantId") or sp_data.get("tenant")
+                                if cid and csecret and tid:
+                                    from azure.identity import ClientSecretCredential
+                                    credential = ClientSecretCredential(tenant_id=tid, client_id=cid, client_secret=csecret)
+                                    if not sub_id:
+                                        sub_id = sp_data.get("subscriptionId") or sp_data.get("subscription")
+                                    break
+                        except Exception:
+                            pass
+
+            # 4. Fallback: Try saved access tokens from accessTokens.json (used inside containers where az CLI is absent)
             if not credential:
                 token_candidates = [
                     Path(os.environ.get("AZURE_CONFIG_DIR", "")) / "accessTokens.json",
@@ -126,7 +180,7 @@ class AzureScanner:
                         except Exception:
                             pass
 
-            # 3. Fall back to DefaultAzureCredential
+            # 4. Fall back to DefaultAzureCredential
             if not credential:
                 credential = DefaultAzureCredential()
 

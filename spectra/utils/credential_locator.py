@@ -285,9 +285,31 @@ class CredentialLocator:
             try:
                 parts = list(self.target_dir.parts)
                 if len(parts) >= 4 and parts[1] == "proc" and parts[3] == "root":
-                    c_proc_root = Path("/proc") / parts[2] / "root"
+                    c_pid = parts[2]
+                    c_proc_root = Path("/proc") / c_pid / "root"
                     container_roots.append(c_proc_root)
                     container_roots.append(c_proc_root / "root")
+
+                    # Inspect live container process environment variables
+                    env_file = Path("/proc") / c_pid / "environ"
+                    if env_file.exists():
+                        try:
+                            raw = env_file.read_bytes()
+                            for item in raw.split(b"\x00"):
+                                if b"=" in item:
+                                    k, v = item.decode("utf-8", errors="ignore").split("=", 1)
+                                    k = k.strip()
+                                    v = v.strip()
+                                    if k in (
+                                        "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID", "AZURE_SUBSCRIPTION_ID",
+                                        "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_DEFAULT_REGION", "AWS_REGION",
+                                        "GOOGLE_APPLICATION_CREDENTIALS"
+                                    ) and v:
+                                        os.environ[k] = v
+                                        if k.startswith("AZURE_") and not creds.azure_config_dir:
+                                            creds.azure_config_dir = env_file
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
@@ -317,6 +339,29 @@ class CredentialLocator:
         candidates.append(root)  # also check container root/workdir
 
         for c in candidates:
+            # Check for container environment files (.env)
+            for env_name in [".env", ".env.local", ".env.production"]:
+                env_file = c / env_name
+                if env_file.is_file():
+                    try:
+                        for line in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                            line = line.strip()
+                            if line and not line.startswith("#") and "=" in line:
+                                k, v = line.split("=", 1)
+                                k = k.strip()
+                                v = v.strip().strip("'\"")
+                                if k in (
+                                    "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID", "AZURE_SUBSCRIPTION_ID",
+                                    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_DEFAULT_REGION", "AWS_REGION",
+                                    "GOOGLE_APPLICATION_CREDENTIALS"
+                                ) and v:
+                                    if not os.environ.get(k):
+                                        os.environ[k] = v
+                                    if k.startswith("AZURE_") and not creds.azure_config_dir:
+                                        creds.azure_config_dir = env_file
+                    except Exception:
+                        pass
+
             # 1. AWS
             aws_dir = c / ".aws"
             if aws_dir.exists():
