@@ -1,6 +1,7 @@
 /helper*.py
 /flattener*.py
 edcatenv/
+tmp/
 **/__pycache__/
 
 # Byte-compiled / optimized / DLL files
