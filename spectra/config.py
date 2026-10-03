@@ -60,30 +60,58 @@ def _get_default_aws_regions() -> List[str]:
     return detected
 
 
+def _is_aws_enabled() -> bool:
+    import os
+    if bool(os.environ.get("AWS_SHARED_CREDENTIALS_FILE")) or bool(os.environ.get("AWS_ACCESS_KEY_ID")):
+        return True
+    try:
+        from spectra.utils.credential_locator import get_credential_locator
+        return get_credential_locator().discover().has_aws
+    except Exception:
+        return (Path.home() / ".aws").exists()
+
+
+def _is_azure_enabled() -> bool:
+    import os
+    if bool(os.environ.get("AZURE_CONFIG_DIR")) or bool(os.environ.get("AZURE_CLIENT_ID")):
+        return True
+    try:
+        from spectra.utils.credential_locator import get_credential_locator
+        return get_credential_locator().discover().has_azure
+    except Exception:
+        return (Path.home() / ".azure").exists()
+
+
 class AWSConfig(BaseModel):
     enabled: bool = Field(
-        default_factory=lambda: (Path.home() / ".aws").exists(),
-        description="Auto-enabled if ~/.aws credentials exist"
+        default_factory=_is_aws_enabled,
+        description="Auto-enabled if AWS credentials exist"
     )
     regions: List[str] = Field(default_factory=_get_default_aws_regions, description="AWS regions to scan")
 
 
 class AzureConfig(BaseModel):
     enabled: bool = Field(
-        default_factory=lambda: (Path.home() / ".azure").exists(),
-        description="Auto-enabled if ~/.azure credentials exist"
+        default_factory=_is_azure_enabled,
+        description="Auto-enabled if Azure credentials exist"
     )
     subscription_id: Optional[str] = Field(default=None, description="Azure subscription ID")
 
 
 def _is_gcp_configured() -> bool:
     import os, shutil
-    has_cli = shutil.which("gcloud") is not None
+    if bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")) or bool(os.environ.get("CLOUDSDK_CONFIG")):
+        return True
+    if shutil.which("gcloud") is not None:
+        return True
     local_app_data = os.environ.get("LOCALAPPDATA", "")
-    if not has_cli and local_app_data:
-        has_cli = (Path(local_app_data) / "Google" / "Cloud SDK" / "google-cloud-sdk" / "bin" / "gcloud.cmd").exists()
-    has_adc = (Path(os.environ.get("APPDATA", "")) / "gcloud" / "application_default_credentials.json").exists()
-    return has_cli or has_adc
+    if local_app_data and (Path(local_app_data) / "Google" / "Cloud SDK" / "google-cloud-sdk" / "bin" / "gcloud.cmd").exists():
+        return True
+    try:
+        from spectra.utils.credential_locator import get_credential_locator
+        return get_credential_locator().discover().has_gcp
+    except Exception:
+        return (Path.home() / ".config" / "gcloud" / "application_default_credentials.json").exists()
 
 
 class GCPConfig(BaseModel):

@@ -73,6 +73,61 @@ class AWSScanner:
             detected_regions.append("us-east-1")
         self.regions = detected_regions
 
+    def _refresh_regions(self) -> None:
+        """Dynamically discovers all regions configured across AWS config files, session, and env."""
+        import os
+        import configparser
+        from pathlib import Path
+
+        candidates: List[str] = []
+
+        # 1. Inspect AWS_CONFIG_FILE or discovered config path
+        cfg_file = os.environ.get("AWS_CONFIG_FILE")
+        if not cfg_file:
+            for p in [Path.home() / ".aws" / "config", Path("/scan/home/ArneshArchWSL/.aws/config")]:
+                if p.exists():
+                    cfg_file = str(p)
+                    break
+
+        if cfg_file and Path(cfg_file).exists():
+            try:
+                cp = configparser.ConfigParser()
+                cp.read(cfg_file)
+                for sec in cp.sections():
+                    if "region" in cp[sec]:
+                        reg = cp[sec]["region"].strip()
+                        if reg and reg not in candidates:
+                            candidates.append(reg)
+                if cp.has_section("default") and "region" in cp["default"]:
+                    def_reg = cp["default"]["region"].strip()
+                    if def_reg and def_reg not in candidates:
+                        candidates.insert(0, def_reg)
+            except Exception:
+                pass
+
+        # 2. Inspect active boto3 session
+        if BOTO3_AVAILABLE:
+            try:
+                sess_reg = boto3.Session().region_name
+                if sess_reg and sess_reg not in candidates:
+                    candidates.insert(0, sess_reg)
+            except Exception:
+                pass
+
+        # 3. Inspect environment variables
+        env_reg = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION")
+        if env_reg and env_reg not in candidates:
+            candidates.insert(0, env_reg)
+
+        for r in self.regions:
+            if r not in candidates:
+                candidates.append(r)
+
+        if not candidates:
+            candidates.append("us-east-1")
+
+        self.regions = candidates
+
     def is_available(self) -> bool:
         """Returns True if boto3 is installed."""
         return BOTO3_AVAILABLE
@@ -82,6 +137,7 @@ class AWSScanner:
         if not self.is_available():
             return []
 
+        self._refresh_regions()
         findings: List[AWSFinding] = []
         for region in self.regions:
             findings.extend(self._scan_kms(region))
