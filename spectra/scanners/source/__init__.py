@@ -115,13 +115,19 @@ class SourceScanOrchestrator:
         log_info(f"Source scan completed with {len(all_findings)} finding(s).")
         return all_findings
 
-    @staticmethod
-    def detect_module_main_language(file_path: Path, root_dir: Optional[Path] = None) -> str:
+    _LANG_CACHE: Dict[Path, str] = {}
+
+    @classmethod
+    def detect_module_main_language(cls, file_path: Path, root_dir: Optional[Path] = None) -> str:
         """
         Determines the primary module language for a file by inspecting parent module
         manifests and service directory names, mapping native/glue files (like C files in a Java service)
         back to their parent module's main language.
         """
+        dir_key = file_path.parent
+        if dir_key in cls._LANG_CACHE:
+            return cls._LANG_CACHE[dir_key]
+
         manifest_langs = [
             (('build.gradle.kts',), 'kotlin'),
             (('pom.xml', 'build.gradle'), 'java'),
@@ -140,7 +146,7 @@ class SourceScanOrchestrator:
         }
 
         curr = file_path.parent
-        root = root_dir.resolve() if root_dir else None
+        root = root_dir if (root_dir and str(root_dir).startswith("/proc/")) else (root_dir.resolve() if root_dir else None)
 
         while curr:
             name_lower = curr.name.lower()
@@ -152,45 +158,45 @@ class SourceScanOrchestrator:
 
             for manifests, lang in manifest_langs:
                 if any(m in entries for m in manifests):
+                    res = lang
                     if lang == 'javascript' and ('tsconfig.json' in entries or any(p.suffix.lower() == '.ts' for p in curr.glob('*.ts'))):
-                        return 'typescript'
-                    return lang
+                        res = 'typescript'
+                    cls._LANG_CACHE[dir_key] = res
+                    return res
 
             # CMake / C/C++ build manifests
             if any(m in entries for m in ('cmakelists.txt', 'vcpkg.json', 'conanfile.txt', 'meson.build')):
-                if any(part in name_lower for part in ('-cpp', '_cpp', 'cpp', 'c++')):
-                    return 'cpp'
+                res = 'cpp'
                 if any(part in name_lower for part in ('-c', '_c')) or name_lower.endswith('c'):
-                    return 'c'
-                return 'cpp'
+                    res = 'c'
+                cls._LANG_CACHE[dir_key] = res
+                return res
 
             # Service/Module directory naming conventions
-            if re.search(r'[-_]?(java|jvm)[-_]?', name_lower) or name_lower.endswith('-java'):
-                return 'java'
-            if re.search(r'[-_]?kotlin[-_]?', name_lower) or name_lower.endswith('-kotlin'):
-                return 'kotlin'
-            if re.search(r'[-_]?(py|python)[-_]?', name_lower) or name_lower.endswith('-py'):
-                return 'python'
-            if re.search(r'[-_]?(go|golang)[-_]?', name_lower) or name_lower.endswith('-go'):
-                return 'go'
-            if re.search(r'[-_]?(rs|rust)[-_]?', name_lower) or name_lower.endswith('-rs'):
-                return 'rust'
-            if re.search(r'[-_]?(ts|typescript)[-_]?', name_lower) or name_lower.endswith('-ts'):
-                return 'typescript'
-            if re.search(r'[-_]?(js|javascript)[-_]?', name_lower) or name_lower.endswith('-js'):
-                return 'javascript'
-            if re.search(r'[-_]?(cpp|cplusplus)[-_]?', name_lower) or name_lower.endswith('-cpp'):
-                return 'cpp'
-            if re.search(r'[-_]c[-_]?', name_lower) or name_lower.endswith('-c'):
-                return 'c'
+            for pattern, lang in [
+                (r'[-_]?(java|jvm)[-_]?', 'java'),
+                (r'[-_]?kotlin[-_]?', 'kotlin'),
+                (r'[-_]?(py|python)[-_]?', 'python'),
+                (r'[-_]?(go|golang)[-_]?', 'go'),
+                (r'[-_]?(rs|rust)[-_]?', 'rust'),
+                (r'[-_]?(ts|typescript)[-_]?', 'typescript'),
+                (r'[-_]?(js|javascript)[-_]?', 'javascript'),
+                (r'[-_]?(cpp|cplusplus)[-_]?', 'cpp'),
+                (r'[-_]c[-_]?', 'c'),
+            ]:
+                if re.search(pattern, name_lower) or name_lower.endswith(f"-{lang}"):
+                    cls._LANG_CACHE[dir_key] = lang
+                    return lang
 
-            if root and curr.resolve() == root:
+            if root and curr == root:
                 break
             if curr.parent == curr:
                 break
             curr = curr.parent
 
-        return ext_langs.get(file_path.suffix.lower(), 'source')
+        fallback = ext_langs.get(file_path.suffix.lower(), 'source')
+        cls._LANG_CACHE[dir_key] = fallback
+        return fallback
 
     def _find_candidates(self, target_dir: Path) -> Set[Path]:
         """Finds candidate files via ripgrep if enabled/available, else uses Python fallback."""
@@ -240,7 +246,7 @@ class SourceScanOrchestrator:
         exclude_globs = [g for ex in self.config.source_scanner.excluded_directories for g in ("-g", f"!**/{ex}/**")]
 
         cmd = [
-            "rg", "-l", "--no-messages", "--color", "never", "--mmap", "--max-filesize", "5M",
+            "rg", "-l", "-L", "--no-messages", "--color", "never", "--mmap", "--max-filesize", "5M",
             "-e", self.dynamic_crypto_regex, *ext_globs, *exclude_globs, str(target_dir)
         ]
 
@@ -248,7 +254,13 @@ class SourceScanOrchestrator:
         if exit_code in (0, 1):
             for line in stdout.splitlines():
                 if line.strip():
-                    candidates.add(Path(line.strip()).resolve())
+                    p = Path(line.strip())
+                    if not str(p).startswith("/proc/"):
+                        try:
+                            p = p.resolve()
+                        except Exception:
+                            pass
+                    candidates.add(p)
             return candidates
 
         log_warning(f"ripgrep returned code {exit_code} ({stderr.strip()}), falling back to Python file walker.")

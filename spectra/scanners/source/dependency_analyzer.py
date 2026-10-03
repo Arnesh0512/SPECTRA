@@ -40,7 +40,7 @@ class DependencyAnalyzer:
     """Analyzes installed dependency packages on disk to extract internal crypto usage and call mapping."""
 
     def __init__(self):
-        pass
+        self.caller_cache: Dict[str, Set[str]] = {}
 
     def locate_library_path(
         self,
@@ -407,9 +407,11 @@ class DependencyAnalyzer:
         scanned_count = 0
         if scanner and lib_path.is_dir():
             import os
+            PRUNE_DIRS = {"test", "tests", "testing", "testdata", "examples", "docs", "benchmarks", "mock", "mocks", ".git", "vendor"}
             try:
-                for root, _, files in os.walk(str(lib_path)):
-                    if scanned_count >= 40:
+                for root, dirs, files in os.walk(str(lib_path)):
+                    dirs[:] = [d for d in dirs if d.lower() not in PRUNE_DIRS]
+                    if scanned_count >= 15:
                         break
                     for f in files:
                         p = Path(root) / f
@@ -418,7 +420,7 @@ class DependencyAnalyzer:
                                 findings = scanner.parse_file(p)
                                 internal_findings.extend(findings)
                                 scanned_count += 1
-                                if scanned_count >= 40:
+                                if scanned_count >= 15:
                                     break
                             except Exception:
                                 continue
@@ -434,12 +436,28 @@ class DependencyAnalyzer:
                 seen_funcs.add(func)
                 unique_findings.append((func, finding))
 
+        # Cap unique primitives per dependency to top 8 to guarantee fast interactive throughput
+        unique_findings = unique_findings[:8]
+
         base_pkg = package_name.split("/")[-1]
+
+        EXCLUDE_GLOBS = [
+            "-g", "!**/node_modules/**",
+            "-g", "!**/target/**",
+            "-g", "!**/.gradle/**",
+            "-g", "!**/.venv/**",
+            "-g", "!**/build/**",
+            "-g", "!**/dist/**",
+            "-g", "!**/.git/**",
+        ]
 
         def _get_callers_for_sig(sig: str) -> Set[str]:
             if not command_exists("rg") or len(sig) < 2:
                 return set()
-            cmd = ["rg", "-w", "--no-heading", "--line-number", sig, str(project_root)]
+            if sig in self.caller_cache:
+                return self.caller_cache[sig]
+
+            cmd = ["rg", "-L", "-w", "--no-heading", "--line-number", *EXCLUDE_GLOBS, sig, str(project_root)]
             code, stdout, _ = run_command(cmd)
             callers: Set[str] = set()
             if code in (0, 1) and stdout:
@@ -456,8 +474,11 @@ class DependencyAnalyzer:
                         "requirements.txt", "constraints.txt", "pyproject.toml", 
                         "package.json", "go.mod", "cargo.toml", "pom.xml"
                     }
-                    if caller_path.is_file() and not is_manifest and not str(caller_path.resolve()).startswith(str(lib_path.resolve())):
-                        callers.add(str(caller_path.resolve()))
+                    if caller_path.is_file() and not is_manifest:
+                        p_str = str(caller_path) if str(caller_path).startswith("/proc/") else str(caller_path.resolve())
+                        if not p_str.startswith(str(lib_path)):
+                            callers.add(p_str)
+            self.caller_cache[sig] = callers
             return callers
 
         # Pre-resolve callers for the base package prefix once
